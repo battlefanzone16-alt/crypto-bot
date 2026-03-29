@@ -4,6 +4,7 @@ import asyncio
 import os
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
+CMC_API_KEY = os.environ.get("CMC_API_KEY")
 GUILD_NAME = "The Crypto Bro"
 
 def get_crypto_data():
@@ -21,10 +22,11 @@ def get_dominance():
     return round(data["data"]["market_cap_percentage"]["btc"], 1)
 
 def get_fear_greed():
-    r = requests.get("https://api.alternative.me/fng/")
+    headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
+    r = requests.get("https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest", headers=headers)
     data = r.json()
-    value = int(data["data"][0]["value"])
-    classification = data["data"][0]["value_classification"]
+    value = int(data["data"]["value"])
+    classification = data["data"]["value_classification"]
     return value, classification
 
 def make_channel_name(symbol, price, change):
@@ -80,7 +82,7 @@ async def update_channels():
                 fg_dot = "🟡"
             await channels["fear-greed"].edit(name=f"{fg_dot}F&G-{fear_value}-{fear_class}")
 
-            print(f"Prix mis à jour ! BTC=${btc_price:,.0f} F&G={fear_value}")
+            print(f"Mis à jour ! BTC=${btc_price:,.0f} F&G={fear_value}")
 
         except Exception as e:
             print(f"Erreur: {e}")
