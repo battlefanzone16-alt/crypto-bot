@@ -20,6 +20,13 @@ def get_dominance():
     data = r.json()
     return round(data["data"]["market_cap_percentage"]["btc"], 1)
 
+def get_fear_greed():
+    r = requests.get("https://api.alternative.me/fng/")
+    data = r.json()
+    value = int(data["data"][0]["value"])
+    classification = data["data"][0]["value_classification"]
+    return value, classification
+
 def make_channel_name(symbol, price, change):
     arrow = "▲" if change >= 0 else "▼"
     dot = "🟢" if change >= 0 else "🔴"
@@ -41,7 +48,7 @@ async def update_channels():
         print(f"Serveur introuvable : {GUILD_NAME}")
         return
 
-    channel_names = ["bitcoin-price", "ethereum-price", "btc-dominance"]
+    channel_names = ["bitcoin-price", "ethereum-price", "btc-dominance", "fear-greed"]
     channels = {}
     for name in channel_names:
         ch = discord.utils.get(guild.channels, name=name)
@@ -57,6 +64,7 @@ async def update_channels():
             btc_change = ((btc_price - prev_btc) / prev_btc * 100) if prev_btc else 0
             prev_btc = btc_price
             dominance = get_dominance()
+            fear_value, fear_class = get_fear_greed()
 
             await channels["bitcoin-price"].edit(name=make_channel_name("BTC", btc_price, btc_change))
             await channels["ethereum-price"].edit(name=make_channel_name("ETH", eth_price, 0))
@@ -64,7 +72,15 @@ async def update_channels():
             dom_dot = "🟢" if dominance >= 50 else "🔴"
             await channels["btc-dominance"].edit(name=f"{dom_dot}BTC-Dom-{dominance}%")
 
-            print(f"Prix mis à jour ! BTC=${btc_price:,.0f}")
+            if fear_value >= 60:
+                fg_dot = "🟢"
+            elif fear_value <= 40:
+                fg_dot = "🔴"
+            else:
+                fg_dot = "🟡"
+            await channels["fear-greed"].edit(name=f"{fg_dot}F&G-{fear_value}-{fear_class}")
+
+            print(f"Prix mis à jour ! BTC=${btc_price:,.0f} F&G={fear_value}")
 
         except Exception as e:
             print(f"Erreur: {e}")
