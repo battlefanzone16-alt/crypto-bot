@@ -4,7 +4,7 @@ import asyncio
 import os
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
-GUILD_NAME = "The Crypto Bro"
+GUILD_NAME = "Cryptobroz"
 
 def get_crypto_data():
     url = "https://api.coingecko.com/api/v3/simple/price"
