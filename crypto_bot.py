@@ -17,9 +17,10 @@ def get_crypto_data():
     return btc_price, eth_price
 
 def get_dominance():
-    r = requests.get("https://api.coingecko.com/api/v3/global")
+    headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
+    r = requests.get("https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest", headers=headers)
     data = r.json()
-    return round(data["data"]["market_cap_percentage"]["btc"], 1)
+    return round(data["data"]["btc_dominance"], 1)
 
 def get_fear_greed():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
@@ -82,7 +83,7 @@ async def update_channels():
                 fg_dot = "🟡"
             await channels["fear-greed"].edit(name=f"{fg_dot}F&G-{fear_value}-{fear_class}")
 
-            print(f"Mis à jour ! BTC=${btc_price:,.0f} F&G={fear_value}")
+            print(f"Mis à jour ! BTC=${btc_price:,.0f} Dom={dominance}% F&G={fear_value}")
 
         except Exception as e:
             print(f"Erreur: {e}")
