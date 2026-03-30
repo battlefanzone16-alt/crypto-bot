@@ -12,6 +12,7 @@ CMC_API_KEY = os.environ.get("CMC_API_KEY")
 TELEGRAM_API_ID = int(os.environ.get("TELEGRAM_API_ID"))
 TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH")
 TELEGRAM_SESSION = os.environ.get("TELEGRAM_SESSION")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 GUILD_NAME = "The Crypto Bro"
 DISCORD_ACTUS_CHANNEL = "actus"
@@ -33,6 +34,9 @@ telegram_client = TelegramClient(
     TELEGRAM_API_ID,
     TELEGRAM_API_HASH
 )
+
+# Stocke les actus de la journée
+daily_news = []
 
 def translate_to_french(text):
     try:
@@ -116,6 +120,58 @@ def get_brent_price():
     except:
         return None
 
+def get_btc_levels():
+    try:
+        # Niveaux 24h
+        r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=BTCUSDT")
+        data = r.json()
+        high_24h = round(float(data["highPrice"]), 0)
+        low_24h = round(float(data["lowPrice"]), 0)
+
+        # Niveaux 7 jours via klines
+        r2 = requests.get("https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=7")
+        klines = r2.json()
+        highs = [float(k[2]) for k in klines]
+        lows = [float(k[3]) for k in klines]
+        high_7d = round(max(highs), 0)
+        low_7d = round(min(lows), 0)
+
+        return low_24h, high_24h, low_7d, high_7d
+    except:
+        return None, None, None, None
+
+def get_ai_summary(news_list):
+    try:
+        if not news_list:
+            return None
+
+        news_text = "\n".join([f"- {n}" for n in news_list])
+
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1000,
+                "messages": [{
+                    "role": "user",
+                    "content": f"""Voici les actualités crypto du jour. Fais un résumé en français en exactement 5 points clés, chacun sur une ligne commençant par un emoji pertinent. Sois concis et informatif. Ne mets pas de titre, juste les 5 points.
+
+Actualités :
+{news_text}"""
+                }]
+            }
+        )
+        data = response.json()
+        return data["content"][0]["text"]
+    except Exception as e:
+        print(f"❌ Erreur IA: {e}")
+        return None
+
 def make_channel_name(symbol, price, change):
     arrow = "▲" if change >= 0 else "▼"
     dot = "🟢" if change >= 0 else "🔴"
@@ -156,6 +212,18 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
     gold_line = f"🥇 Gold : ${gold:,.2f}" if gold else "⚠️ Gold indisponible"
     brent_line = f"🛢️ Brent : ${brent:,.2f}" if brent else "⚠️ Brent indisponible"
 
+    # Supports et résistances
+    low_24h, high_24h, low_7d, high_7d = get_btc_levels()
+    if low_24h:
+        levels_section = f"""
+**🎯 Niveaux BTC**
+🔴 Résistance 24h : ${high_24h:,.0f}
+🟢 Support 24h : ${low_24h:,.0f}
+🔴 Résistance 7j : ${high_7d:,.0f}
+🟢 Support 7j : ${low_7d:,.0f}"""
+    else:
+        levels_section = ""
+
     return f"""
 {label} **Résumé des marchés — {date_str}**
 
@@ -174,6 +242,7 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
 **🌍 Macro**
 {gold_line}
 {brent_line}
+{levels_section}
 """.strip()
 
 async def post_summary(actus_channel, label="📊"):
@@ -193,6 +262,32 @@ async def post_summary(actus_channel, label="📊"):
         print(f"✅ Résumé posté dans #actus")
     except Exception as e:
         print(f"❌ Erreur résumé: {e}")
+
+async def post_ai_recap(actus_channel):
+    global daily_news
+    try:
+        if not daily_news:
+            print("⚠️ Pas d'actus aujourd'hui pour le récap IA")
+            return
+
+        print(f"🤖 Génération récap IA avec {len(daily_news)} actus...")
+        summary = get_ai_summary(daily_news)
+
+        if not summary:
+            return
+
+        paris_time = datetime.now(timezone(timedelta(hours=2)))
+        date_str = paris_time.strftime("%d %B %Y")
+
+        message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
+        await actus_channel.send(message)
+        print("✅ Récap IA posté")
+
+        # Remet à zéro pour le lendemain
+        daily_news = []
+
+    except Exception as e:
+        print(f"❌ Erreur récap IA: {e}")
 
 async def update_channels():
     await discord_client.wait_until_ready()
@@ -288,15 +383,32 @@ async def daily_summary():
 
     while True:
         paris_now = datetime.now(timezone(timedelta(hours=2)))
+
+        # Résumé matinal à 8h
         next_8h = paris_now.replace(hour=8, minute=0, second=0, microsecond=0)
         if paris_now >= next_8h:
             next_8h += timedelta(days=1)
-        wait_seconds = (next_8h - paris_now).total_seconds()
-        print(f"⏰ Prochain résumé dans {int(wait_seconds // 3600)}h {int((wait_seconds % 3600) // 60)}min")
+
+        # Récap IA à 20h
+        next_20h = paris_now.replace(hour=20, minute=0, second=0, microsecond=0)
+        if paris_now >= next_20h:
+            next_20h += timedelta(days=1)
+
+        # Attend le prochain événement
+        next_event = min(next_8h, next_20h)
+        wait_seconds = (next_event - paris_now).total_seconds()
+        print(f"⏰ Prochain événement dans {int(wait_seconds // 3600)}h {int((wait_seconds % 3600) // 60)}min")
         await asyncio.sleep(wait_seconds)
-        await post_summary(actus_channel, label="🌅 **Résumé matinal**")
+
+        paris_now = datetime.now(timezone(timedelta(hours=2)))
+
+        if paris_now.hour == 8:
+            await post_summary(actus_channel, label="🌅 **Résumé matinal**")
+        elif paris_now.hour == 20:
+            await post_ai_recap(actus_channel)
 
 async def poll_telegram():
+    global daily_news
     await discord_client.wait_until_ready()
 
     guild = discord.utils.get(discord_client.guilds, name=GUILD_NAME)
@@ -360,6 +472,10 @@ async def poll_telegram():
                     text = translate_to_french(message.text) if translate and message.text else message.text or ""
                     post_link = f"https://t.me/{username}/{message.id}"
                     content = f"{label}\n\n{text}\n\n🔗 [Voir la source]({post_link})"
+
+                    # Ajoute au récap IA
+                    if text and len(text) > 10:
+                        daily_news.append(f"[{label.replace('*', '').replace('_', '').strip()}] {text[:200]}")
 
                     if message.photo:
                         path = await message.download_media()
