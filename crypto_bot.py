@@ -15,13 +15,15 @@ TELEGRAM_SESSION = os.environ.get("TELEGRAM_SESSION")
 
 GUILD_NAME = "The Crypto Bro"
 DISCORD_ACTUS_CHANNEL = "actus"
+DISCORD_CRYPTO_CHANNEL = "crypto"
+BTC_ALERT_THRESHOLD = 4.9
 
 TELEGRAM_CHANNELS = {
-    "@WalterBloomberg": ("📢 **Walter Bloomberg**", True),
-    "@watcherguru": ("👁️ **Watcher Guru**", True),
-    "@cointelegraph": ("📰 **CoinTelegraph**", True),
-    "@cryptoast_fr": ("🇫🇷 **CryptoAst**", False),
-    "@journalducoin_fr": ("🇫🇷 **Journal du Coin**", False),
+    "@WalterBloomberg": ("📢 **Walter Bloomberg**", True, False),
+    "@watcherguru": ("👁️ **Watcher Guru**", True, False),
+    "@cointelegraph": ("📰 **CoinTelegraph**", True, False),
+    "@cryptoast_fr": ("🇫🇷 **CryptoAst**", False, True),
+    "@journalducoin_fr": ("🇫🇷 **Journal du Coin**", False, False),
 }
 
 intents = discord.Intents.default()
@@ -68,8 +70,7 @@ def get_funding_rate():
         data = r.json()
         rate = float(data["lastFundingRate"]) * 100
         return round(rate, 4)
-    except Exception as e:
-        print(f"❌ Erreur funding rate: {e}")
+    except:
         return None
 
 def get_volume_24h():
@@ -78,8 +79,7 @@ def get_volume_24h():
         data = r.json()
         volume = float(data["quoteVolume"]) / 1_000_000_000
         return round(volume, 2)
-    except Exception as e:
-        print(f"❌ Erreur volume: {e}")
+    except:
         return None
 
 def get_btc_change_24h():
@@ -98,12 +98,29 @@ def get_eth_change_24h():
     except:
         return None
 
+def get_gold_price():
+    try:
+        r = requests.get("https://api.metals.live/v1/spot/gold")
+        data = r.json()
+        return round(data[0]["gold"], 2)
+    except:
+        return None
+
+def get_brent_price():
+    try:
+        r = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/BZ=F", headers={"User-Agent": "Mozilla/5.0"})
+        data = r.json()
+        price = data["chart"]["result"][0]["meta"]["regularMarketPrice"]
+        return round(price, 2)
+    except:
+        return None
+
 def make_channel_name(symbol, price, change):
     arrow = "▲" if change >= 0 else "▼"
     dot = "🟢" if change >= 0 else "🔴"
     return f"{dot}{symbol}-${price:,.0f}-{arrow}{abs(change):.1f}%"
 
-def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, volume, label="📊"):
+def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, volume, gold, brent, label="📊"):
     paris_time = datetime.now(timezone(timedelta(hours=2)))
     date_str = paris_time.strftime("%A %d %B %Y")
 
@@ -111,7 +128,6 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
     eth_dot = "🟢" if eth_change >= 0 else "🔴"
     btc_arrow = "▲" if btc_change >= 0 else "▼"
     eth_arrow = "▲" if eth_change >= 0 else "▼"
-
     dom_dot = "🟢" if dom >= 50 else "🔴"
 
     if fg >= 60:
@@ -124,26 +140,25 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
     if funding is not None:
         if funding > 0.01:
             f_dot = "🔴"
-            f_label = "marché suracheté"
+            f_label = "suracheté"
         elif funding < -0.01:
             f_dot = "🟢"
-            f_label = "marché survendu"
+            f_label = "survendu"
         else:
             f_dot = "🟡"
-            f_label = "marché neutre"
+            f_label = "neutre"
         funding_line = f"{f_dot} Funding Rate BTC : {funding}% ({f_label})"
     else:
         funding_line = "⚠️ Funding Rate indisponible"
 
-    if volume is not None:
-        volume_line = f"📊 Volume 24h BTC : ${volume}B"
-    else:
-        volume_line = "⚠️ Volume indisponible"
+    volume_line = f"📊 Volume 24h BTC : ${volume}B" if volume else "⚠️ Volume indisponible"
+    gold_line = f"🥇 Gold : ${gold:,.2f}" if gold else "⚠️ Gold indisponible"
+    brent_line = f"🛢️ Brent : ${brent:,.2f}" if brent else "⚠️ Brent indisponible"
 
     return f"""
 {label} **Résumé des marchés — {date_str}**
 
-**💰 Prix**
+**💰 Crypto**
 {btc_dot} BTC : ${btc:,.0f} — {btc_arrow} {abs(btc_change):.2f}% (24h)
 {eth_dot} ETH : ${eth:,.0f} — {eth_arrow} {abs(eth_change):.2f}% (24h)
 
@@ -154,6 +169,10 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
 **📈 Marché**
 {volume_line}
 {funding_line}
+
+**🌍 Macro**
+{gold_line}
+{brent_line}
 """.strip()
 
 async def post_summary(actus_channel, label="📊"):
@@ -165,8 +184,10 @@ async def post_summary(actus_channel, label="📊"):
         fg, fg_class = get_fear_greed()
         funding = get_funding_rate()
         volume = get_volume_24h()
+        gold = get_gold_price()
+        brent = get_brent_price()
 
-        message = build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, volume, label)
+        message = build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, volume, gold, brent, label)
         await actus_channel.send(message)
         print(f"✅ Résumé posté dans #actus")
     except Exception as e:
@@ -190,11 +211,37 @@ async def update_channels():
         channels[name] = ch
 
     prev_btc = None
+    alert_sent = False
 
     while True:
         try:
             btc, eth = get_crypto_data()
             btc_change = ((btc - prev_btc) / prev_btc * 100) if prev_btc else 0
+
+            # Alerte BTC
+            if prev_btc and abs(btc_change) >= BTC_ALERT_THRESHOLD:
+                if not alert_sent:
+                    guild = discord.utils.get(discord_client.guilds, name=GUILD_NAME)
+                    actus_channel = discord.utils.find(
+                        lambda c: DISCORD_ACTUS_CHANNEL.lower() in c.name.lower(),
+                        guild.text_channels
+                    )
+                    crypto_channel = discord.utils.find(
+                        lambda c: DISCORD_CRYPTO_CHANNEL.lower() in c.name.lower(),
+                        guild.text_channels
+                    )
+                    direction = "📈 PUMP" if btc_change > 0 else "📉 DUMP"
+                    arrow = "▲" if btc_change > 0 else "▼"
+                    alert_msg = f"🚨 **ALERTE BTC** 🚨\n\n{direction} de **{arrow} {abs(btc_change):.2f}%** en 5 minutes !\n💰 Prix actuel : **${btc:,.0f}**"
+                    if actus_channel:
+                        await actus_channel.send(alert_msg)
+                    if crypto_channel:
+                        await crypto_channel.send(alert_msg)
+                    alert_sent = True
+                    print(f"🚨 Alerte BTC envoyée : {btc_change:.2f}%")
+            else:
+                alert_sent = False
+
             prev_btc = btc
             dom = get_dominance()
             fg, fg_class = get_fear_greed()
@@ -240,7 +287,6 @@ async def daily_summary():
     # Résumé au démarrage
     await post_summary(actus_channel, label="🚀 **Résumé de démarrage**")
 
-    # Boucle quotidienne à 8h heure de Paris
     while True:
         paris_now = datetime.now(timezone(timedelta(hours=2)))
         next_8h = paris_now.replace(hour=8, minute=0, second=0, microsecond=0)
@@ -281,7 +327,7 @@ async def poll_telegram():
             last_ids[channel_username] = 0
 
     # Test démarrage
-    for channel_username, (label, translate) in TELEGRAM_CHANNELS.items():
+    for channel_username, (label, translate, suppress) in TELEGRAM_CHANNELS.items():
         try:
             entity = await telegram_client.get_entity(channel_username)
             username = channel_username.strip("@")
@@ -290,7 +336,7 @@ async def poll_telegram():
                     text = translate_to_french(message.text) if translate else message.text
                     post_link = f"https://t.me/{username}/{message.id}"
                     content = f"{label} _(test démarrage)_\n\n{text}\n\n🔗 [Voir la source]({post_link})"
-                    await actus_channel.send(content)
+                    await actus_channel.send(content, suppress_embeds=suppress)
                     print(f"✅ Message test {channel_username} envoyé")
                     break
         except Exception as e:
@@ -301,7 +347,7 @@ async def poll_telegram():
     while True:
         await asyncio.sleep(60)
 
-        for channel_username, (label, translate) in TELEGRAM_CHANNELS.items():
+        for channel_username, (label, translate, suppress) in TELEGRAM_CHANNELS.items():
             try:
                 entity = await telegram_client.get_entity(channel_username)
                 username = channel_username.strip("@")
@@ -320,11 +366,11 @@ async def poll_telegram():
                     if message.photo:
                         path = await message.download_media()
                         with open(path, 'rb') as f:
-                            await actus_channel.send(content=content, file=discord.File(f))
+                            await actus_channel.send(content=content, file=discord.File(f), suppress_embeds=suppress)
                         if os.path.exists(path):
                             os.remove(path)
                     else:
-                        await actus_channel.send(content)
+                        await actus_channel.send(content, suppress_embeds=suppress)
 
                     print(f"✅ Nouveau message {channel_username} envoyé")
 
