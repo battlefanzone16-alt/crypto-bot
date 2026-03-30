@@ -37,7 +37,7 @@ def translate_to_french(text):
         return text
 
 def get_crypto_data():
-    url = "https://api.coinbase.com/v2/exchange-rates?currency=USD"
+    url = "https://api.coinbase.com"
     r = requests.get(url)
     data = r.json()
     rates = data["data"]["rates"]
@@ -50,7 +50,7 @@ def get_crypto_data():
 def get_dominance():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
     r = requests.get(
-        "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest",
+        "https://pro-api.coinmarketcap.com",
         headers=headers
     )
     return round(r.json()["data"]["btc_dominance"], 1)
@@ -58,7 +58,7 @@ def get_dominance():
 def get_fear_greed():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
     r = requests.get(
-        "https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest",
+        "https://pro-api.coinmarketcap.com",
         headers=headers
     )
     data = r.json()["data"]
@@ -131,7 +131,7 @@ async def update_channels():
 
         await asyncio.sleep(300)
 
-# ===== TELEGRAM → DISCORD =====
+# ===== TELEGRAM → DISCORD (PARTIE MODIFIÉE) =====
 async def setup_telegram_listener():
     await discord_client.wait_until_ready()
 
@@ -140,17 +140,10 @@ async def setup_telegram_listener():
         print("❌ Serveur introuvable")
         return
 
-    # 🔥 Recherche robuste du channel "actus"
-  
     actus_channel = discord.utils.find(
-    lambda c: DISCORD_ACTUS_CHANNEL.lower() in c.name.lower(),
-    guild.text_channels
-)
-
-    # DEBUG (tu peux supprimer après)
-    print("📂 Channels détectés :")
-    for ch in guild.text_channels:
-        print(f"-> '{ch.name}'")
+        lambda c: DISCORD_ACTUS_CHANNEL.lower() in c.name.lower(),
+        guild.text_channels
+    )
 
     if not actus_channel:
         print("❌ Channel 'actus' introuvable")
@@ -167,16 +160,34 @@ async def setup_telegram_listener():
 
     @telegram_client.on(events.NewMessage(chats=channel))
     async def handler(event):
-        if event.message.text:
-            translated = translate_to_french(event.message.text)
+        original_text = event.message.text
+        
+        # Ignorer si le message est totalement vide (ni texte ni image)
+        if not original_text and not event.photo:
+            return
 
-            try:
-                await actus_channel.send(
-                    f"📢 **Walter Bloomberg**\n\n{translated}"
-                )
-                print("✅ Message envoyé sur Discord")
-            except Exception as e:
-                print(f"❌ Erreur Discord: {e}")
+        # Traduction si texte présent
+        translated = translate_to_french(original_text) if original_text else ""
+        
+        # Construction du message Discord
+        content = f"📢 **Walter Bloomberg**\n\n{translated}"
+        if original_text:
+            content += f"\n\n**Original :**\n||{original_text}||"
+
+        try:
+            if event.photo:
+                # Téléchargement et envoi de l'image
+                path = await event.download_media()
+                with open(path, 'rb') as f:
+                    await actus_channel.send(content=content, file=discord.File(f))
+                if os.path.exists(path):
+                    os.remove(path)
+            else:
+                # Envoi texte uniquement
+                await actus_channel.send(content)
+            print("✅ Message envoyé sur Discord")
+        except Exception as e:
+            print(f"❌ Erreur Discord: {e}")
 
 # ===== EVENTS =====
 @discord_client.event
