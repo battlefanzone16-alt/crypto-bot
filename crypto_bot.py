@@ -35,7 +35,6 @@ telegram_client = TelegramClient(
     TELEGRAM_API_HASH
 )
 
-# Stocke les actus de la journée
 daily_news = []
 
 def translate_to_french(text):
@@ -122,13 +121,11 @@ def get_brent_price():
 
 def get_btc_levels():
     try:
-        # Niveaux 24h
         r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=BTCUSDT")
         data = r.json()
         high_24h = round(float(data["highPrice"]), 0)
         low_24h = round(float(data["lowPrice"]), 0)
 
-        # Niveaux 7 jours via klines
         r2 = requests.get("https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=7")
         klines = r2.json()
         highs = [float(k[2]) for k in klines]
@@ -139,6 +136,48 @@ def get_btc_levels():
         return low_24h, high_24h, low_7d, high_7d
     except:
         return None, None, None, None
+
+def get_weekly_calendar():
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", headers=headers)
+        data = r.json()
+
+        # Filtre uniquement les événements USD à fort impact
+        important = []
+        for event in data:
+            if event.get("country") == "USD" and event.get("impact") == "High":
+                date_str = event.get("date", "")
+                title = event.get("title", "")
+                forecast = event.get("forecast", "")
+                previous = event.get("previous", "")
+
+                # Parse la date
+                try:
+                    dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    paris_dt = dt.astimezone(timezone(timedelta(hours=2)))
+                    day = paris_dt.strftime("%A %d/%m")
+                    time = paris_dt.strftime("%H:%M")
+                except:
+                    day = date_str[:10]
+                    time = "?"
+
+                line = f"📌 **{day}** à {time} — {title}"
+                if forecast:
+                    line += f" | Prévision: `{forecast}`"
+                if previous:
+                    line += f" | Précédent: `{previous}`"
+
+                important.append((paris_dt if 'paris_dt' in dir() else datetime.now(), line))
+
+        # Trie par date
+        important.sort(key=lambda x: x[0])
+
+        return [line for _, line in important]
+
+    except Exception as e:
+        print(f"❌ Erreur calendrier: {e}")
+        return []
 
 def get_ai_summary(news_list):
     try:
@@ -212,10 +251,10 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
     gold_line = f"🥇 Gold : ${gold:,.2f}" if gold else "⚠️ Gold indisponible"
     brent_line = f"🛢️ Brent : ${brent:,.2f}" if brent else "⚠️ Brent indisponible"
 
-    # Supports et résistances
     low_24h, high_24h, low_7d, high_7d = get_btc_levels()
     if low_24h:
         levels_section = f"""
+
 **🎯 Niveaux BTC**
 🔴 Résistance 24h : ${high_24h:,.0f}
 🟢 Support 24h : ${low_24h:,.0f}
@@ -241,8 +280,7 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
 
 **🌍 Macro**
 {gold_line}
-{brent_line}
-{levels_section}
+{brent_line}{levels_section}
 """.strip()
 
 async def post_summary(actus_channel, label="📊"):
@@ -262,6 +300,29 @@ async def post_summary(actus_channel, label="📊"):
         print(f"✅ Résumé posté dans #actus")
     except Exception as e:
         print(f"❌ Erreur résumé: {e}")
+
+async def post_weekly_calendar(actus_channel):
+    try:
+        events = get_weekly_calendar()
+        paris_time = datetime.now(timezone(timedelta(hours=2)))
+
+        # Calcule les dates de début et fin de semaine
+        monday = paris_time - timedelta(days=paris_time.weekday())
+        sunday = monday + timedelta(days=6)
+        week_str = f"{monday.strftime('%d/%m')} au {sunday.strftime('%d/%m/%Y')}"
+
+        if not events:
+            await actus_channel.send(f"📅 **Calendrier éco US — semaine du {week_str}**\n\nAucun événement majeur cette semaine !")
+            return
+
+        content = f"📅 **Calendrier éco US — semaine du {week_str}**\n\n"
+        content += "\n".join(events)
+        content += "\n\n_Source : Forex Factory | Heure de Paris_"
+
+        await actus_channel.send(content)
+        print("✅ Calendrier éco posté")
+    except Exception as e:
+        print(f"❌ Erreur calendrier: {e}")
 
 async def post_ai_recap(actus_channel):
     global daily_news
@@ -283,7 +344,6 @@ async def post_ai_recap(actus_channel):
         await actus_channel.send(message)
         print("✅ Récap IA posté")
 
-        # Remet à zéro pour le lendemain
         daily_news = []
 
     except Exception as e:
@@ -379,22 +439,20 @@ async def daily_summary():
         print("❌ Channel 'actus' introuvable")
         return
 
-    await post_summary(actus_channel, label="🚀 **Résumé de démarrage**")
+    # Poste le calendrier au démarrage cette semaine uniquement
+    await post_weekly_calendar(actus_channel)
 
     while True:
         paris_now = datetime.now(timezone(timedelta(hours=2)))
 
-        # Résumé matinal à 8h
         next_8h = paris_now.replace(hour=8, minute=0, second=0, microsecond=0)
         if paris_now >= next_8h:
             next_8h += timedelta(days=1)
 
-        # Récap IA à 20h
         next_20h = paris_now.replace(hour=20, minute=0, second=0, microsecond=0)
         if paris_now >= next_20h:
             next_20h += timedelta(days=1)
 
-        # Attend le prochain événement
         next_event = min(next_8h, next_20h)
         wait_seconds = (next_event - paris_now).total_seconds()
         print(f"⏰ Prochain événement dans {int(wait_seconds // 3600)}h {int((wait_seconds % 3600) // 60)}min")
@@ -404,6 +462,9 @@ async def daily_summary():
 
         if paris_now.hour == 8:
             await post_summary(actus_channel, label="🌅 **Résumé matinal**")
+            # Poste le calendrier chaque lundi matin
+            if paris_now.weekday() == 0:
+                await post_weekly_calendar(actus_channel)
         elif paris_now.hour == 20:
             await post_ai_recap(actus_channel)
 
@@ -437,21 +498,6 @@ async def poll_telegram():
             print(f"❌ Erreur init {channel_username}: {e}")
             last_ids[channel_username] = 0
 
-    for channel_username, (label, translate, suppress) in TELEGRAM_CHANNELS.items():
-        try:
-            entity = await telegram_client.get_entity(channel_username)
-            username = channel_username.strip("@")
-            async for message in telegram_client.iter_messages(entity, limit=10):
-                if message.text and len(message.text) > 5:
-                    text = translate_to_french(message.text) if translate else message.text
-                    post_link = f"https://t.me/{username}/{message.id}"
-                    content = f"{label} _(test démarrage)_\n\n{text}\n\n🔗 [Voir la source]({post_link})"
-                    await actus_channel.send(content, suppress_embeds=suppress)
-                    print(f"✅ Message test {channel_username} envoyé")
-                    break
-        except Exception as e:
-            print(f"❌ Erreur test {channel_username}: {e}")
-
     print("👀 Polling Telegram actif (toutes les 60 secondes)")
 
     while True:
@@ -473,7 +519,6 @@ async def poll_telegram():
                     post_link = f"https://t.me/{username}/{message.id}"
                     content = f"{label}\n\n{text}\n\n🔗 [Voir la source]({post_link})"
 
-                    # Ajoute au récap IA
                     if text and len(text) > 10:
                         daily_news.append(f"[{label.replace('*', '').replace('_', '').strip()}] {text[:200]}")
 
