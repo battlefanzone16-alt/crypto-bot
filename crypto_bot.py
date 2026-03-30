@@ -32,8 +32,7 @@ telegram_client = TelegramClient(
 def translate_to_french(text):
     try:
         return GoogleTranslator(source="auto", target="fr").translate(text)
-    except Exception as e:
-        print(f"Erreur traduction: {e}")
+    except:
         return text
 
 def get_crypto_data():
@@ -41,23 +40,34 @@ def get_crypto_data():
     r = requests.get(url)
     data = r.json()
     rates = data["data"]["rates"]
+
     btc_price = 1 / float(rates["BTC"])
     eth_price = 1 / float(rates["ETH"])
+
     return btc_price, eth_price
 
 def get_dominance():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    r = requests.get("https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest", headers=headers)
+    r = requests.get(
+        "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest",
+        headers=headers
+    )
     return round(r.json()["data"]["btc_dominance"], 1)
 
 def get_fear_greed():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    r = requests.get("https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest", headers=headers)
+    r = requests.get(
+        "https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest",
+        headers=headers
+    )
     data = r.json()["data"]
     return int(data["value"]), data["value_classification"]
 
-def make_channel_name(symbol, price):
-    return f"{symbol}-${price:,.0f}"
+# ===== STYLE VISUEL (RETOUR DES BULLES 🔥) =====
+def make_channel_name(symbol, price, change):
+    arrow = "▲" if change >= 0 else "▼"
+    dot = "🟢" if change >= 0 else "🔴"
+    return f"{dot}{symbol}-${price:,.0f}-{arrow}{abs(change):.1f}%"
 
 # ===== UPDATE PRIX =====
 async def update_channels():
@@ -68,8 +78,8 @@ async def update_channels():
         print("❌ Serveur Discord introuvable")
         return
 
-    channels = {}
     names = ["bitcoin-price", "ethereum-price", "btc-dominance", "fear-greed"]
+    channels = {}
 
     for name in names:
         ch = discord.utils.get(guild.channels, name=name)
@@ -77,18 +87,46 @@ async def update_channels():
             ch = await guild.create_voice_channel(name)
         channels[name] = ch
 
+    prev_btc = None
+
     while True:
         try:
             btc, eth = get_crypto_data()
+
+            btc_change = ((btc - prev_btc) / prev_btc * 100) if prev_btc else 0
+            prev_btc = btc
+
             dom = get_dominance()
             fg, fg_class = get_fear_greed()
 
-            await channels["bitcoin-price"].edit(name=make_channel_name("BTC", btc))
-            await channels["ethereum-price"].edit(name=make_channel_name("ETH", eth))
-            await channels["btc-dominance"].edit(name=f"BTC-Dom-{dom}%")
-            await channels["fear-greed"].edit(name=f"F&G-{fg}-{fg_class}")
+            # BTC & ETH avec bulles
+            await channels["bitcoin-price"].edit(
+                name=make_channel_name("BTC", btc, btc_change)
+            )
 
-            print(f"✅ Prix MAJ BTC={btc}")
+            await channels["ethereum-price"].edit(
+                name=make_channel_name("ETH", eth, 0)
+            )
+
+            # Dominance
+            dom_dot = "🟢" if dom >= 50 else "🔴"
+            await channels["btc-dominance"].edit(
+                name=f"{dom_dot}BTC-Dom-{dom}%"
+            )
+
+            # Fear & Greed
+            if fg >= 60:
+                fg_dot = "🟢"
+            elif fg <= 40:
+                fg_dot = "🔴"
+            else:
+                fg_dot = "🟡"
+
+            await channels["fear-greed"].edit(
+                name=f"{fg_dot}F&G-{fg}-{fg_class}"
+            )
+
+            print(f"✅ MAJ BTC={btc:,.0f} | Dom={dom}% | F&G={fg}")
 
         except Exception as e:
             print(f"❌ Erreur prix: {e}")
@@ -104,23 +142,21 @@ async def setup_telegram_listener():
         print("❌ Serveur introuvable")
         return
 
-    actus_channel = discord.utils.get(guild.text_channels, name=DISCORD_ACTUS_CHANNEL)
+    actus_channel = discord.utils.get(
+        guild.text_channels,
+        name=DISCORD_ACTUS_CHANNEL
+    )
+
     if not actus_channel:
         print("❌ Channel 'actus' introuvable")
         return
 
     print("👀 Surveillance Telegram active")
 
-    try:
-        channel = await telegram_client.get_entity(TELEGRAM_CHANNEL)
-    except Exception as e:
-        print(f"❌ Erreur récupération Telegram: {e}")
-        return
+    channel = await telegram_client.get_entity(TELEGRAM_CHANNEL)
 
     @telegram_client.on(events.NewMessage(chats=channel))
     async def handler(event):
-        print("📩 Message Telegram reçu")
-
         if event.message.text:
             translated = translate_to_french(event.message.text)
 
@@ -128,9 +164,9 @@ async def setup_telegram_listener():
                 await actus_channel.send(
                     f"📢 **Walter Bloomberg**\n\n{translated}"
                 )
-                print("✅ Envoyé sur Discord")
+                print("✅ Message envoyé")
             except Exception as e:
-                print(f"❌ Erreur envoi Discord: {e}")
+                print(f"❌ Erreur Discord: {e}")
 
 # ===== EVENTS =====
 @discord_client.event
@@ -150,14 +186,8 @@ async def main():
 
     print("✅ Telegram connecté")
 
-    # TEST DEBUG
-    async for msg in telegram_client.iter_messages(TELEGRAM_CHANNEL, limit=2):
-        print("🧪 TEST TELEGRAM:", msg.text)
-
-    # Lance Telegram en fond
     asyncio.create_task(telegram_client.run_until_disconnected())
 
-    # Lance Discord
     await discord_client.start(TOKEN)
 
 asyncio.run(main())
