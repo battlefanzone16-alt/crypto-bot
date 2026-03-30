@@ -36,10 +36,22 @@ def translate_to_french(text):
         print(f"⚠️ Erreur traduction: {e}")
         return text
 
+def safe_json(response):
+    try:
+        return response.json()
+    except Exception:
+        print("❌ Réponse invalide:", response.text[:200])
+        raise
+
+# ✅ FIX ICI
 def get_crypto_data():
-    url = "https://api.coinbase.com"
+    url = "https://api.coinbase.com/v2/exchange-rates?currency=USD"
     r = requests.get(url)
-    data = r.json()
+
+    if r.status_code != 200:
+        raise Exception(f"Coinbase API error: {r.status_code}")
+
+    data = safe_json(r)
     rates = data["data"]["rates"]
 
     btc_price = 1 / float(rates["BTC"])
@@ -47,21 +59,28 @@ def get_crypto_data():
 
     return btc_price, eth_price
 
+# ✅ FIX ICI
 def get_dominance():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    r = requests.get(
-        "https://pro-api.coinmarketcap.com",
-        headers=headers
-    )
-    return round(r.json()["data"]["btc_dominance"], 1)
+    url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
 
+    r = requests.get(url, headers=headers)
+
+    if r.status_code != 200:
+        raise Exception(f"CMC API error: {r.status_code}")
+
+    data = safe_json(r)
+    return round(data["data"]["btc_dominance"], 1)
+
+# ✅ FIX ICI (API correcte pour Fear & Greed)
 def get_fear_greed():
-    headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    r = requests.get(
-        "https://pro-api.coinmarketcap.com",
-        headers=headers
-    )
-    data = r.json()["data"]
+    url = "https://api.alternative.me/fng/"
+    r = requests.get(url)
+
+    if r.status_code != 200:
+        raise Exception(f"F&G API error: {r.status_code}")
+
+    data = safe_json(r)["data"][0]
     return int(data["value"]), data["value_classification"]
 
 # ===== STYLE VISUEL =====
@@ -131,7 +150,7 @@ async def update_channels():
 
         await asyncio.sleep(300)
 
-# ===== TELEGRAM → DISCORD (PARTIE MODIFIÉE) =====
+# ===== TELEGRAM → DISCORD =====
 async def setup_telegram_listener():
     await discord_client.wait_until_ready()
 
@@ -162,28 +181,23 @@ async def setup_telegram_listener():
     async def handler(event):
         original_text = event.message.text
         
-        # Ignorer si le message est totalement vide (ni texte ni image)
         if not original_text and not event.photo:
             return
 
-        # Traduction si texte présent
         translated = translate_to_french(original_text) if original_text else ""
         
-        # Construction du message Discord
         content = f"📢 **Walter Bloomberg**\n\n{translated}"
         if original_text:
             content += f"\n\n**Original :**\n||{original_text}||"
 
         try:
             if event.photo:
-                # Téléchargement et envoi de l'image
                 path = await event.download_media()
                 with open(path, 'rb') as f:
                     await actus_channel.send(content=content, file=discord.File(f))
                 if os.path.exists(path):
                     os.remove(path)
             else:
-                # Envoi texte uniquement
                 await actus_channel.send(content)
             print("✅ Message envoyé sur Discord")
         except Exception as e:
