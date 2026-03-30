@@ -2,7 +2,7 @@ import discord
 import requests
 import asyncio
 import os
-from telethon import TelegramClient, events
+from telethon import TelegramClient
 from telethon.sessions import StringSession
 from deep_translator import GoogleTranslator
 
@@ -111,7 +111,7 @@ async def update_channels():
 
         await asyncio.sleep(300)
 
-async def setup_telegram_listener():
+async def poll_telegram():
     await discord_client.wait_until_ready()
 
     guild = discord.utils.get(discord_client.guilds, name=GUILD_NAME)
@@ -128,60 +128,63 @@ async def setup_telegram_listener():
         print("❌ Channel 'actus' introuvable")
         return
 
-    print(f"✅ Channel trouvé : {actus_channel.name}")
+    # Mémorise le dernier ID de message pour chaque canal
+    last_ids = {}
 
-    channel_entities = {}
-    for channel_username, label in TELEGRAM_CHANNELS.items():
+    for channel_username in TELEGRAM_CHANNELS:
         try:
             entity = await telegram_client.get_entity(channel_username)
-            channel_entities[entity.id] = (label, channel_username.strip("@"))
-            print(f"✅ Canal Telegram trouvé : {channel_username}")
-
-            async for message in telegram_client.iter_messages(entity, limit=10):
-                if message.text and len(message.text) > 5:
-                    translated = translate_to_french(message.text)
-                    post_link = f"https://t.me/{channel_username.strip('@')}/{message.id}"
-                    content = f"{label} _(dernier message)_\n\n{translated}\n\n🔗 [Voir la source]({post_link})"
-                    await actus_channel.send(content)
-                    print(f"✅ Dernier message {channel_username} envoyé")
-                    break
-
+            async for message in telegram_client.iter_messages(entity, limit=1):
+                last_ids[channel_username] = message.id
+            print(f"✅ Dernier ID mémorisé pour {channel_username} : {last_ids[channel_username]}")
         except Exception as e:
-            print(f"❌ Erreur canal {channel_username}: {e}")
+            print(f"❌ Erreur init {channel_username}: {e}")
+            last_ids[channel_username] = 0
 
-    print("👀 Surveillance Telegram active")
+    print("👀 Polling Telegram actif (toutes les 60 secondes)")
 
-    @telegram_client.on(events.NewMessage(chats=list(channel_entities.keys())))
-    async def handler(event):
-        original_text = event.message.text
-        label, username = channel_entities.get(event.chat_id, ("📢 **Actu**", ""))
+    while True:
+        await asyncio.sleep(60)
 
-        if not original_text and not event.photo:
-            return
+        for channel_username, label in TELEGRAM_CHANNELS.items():
+            try:
+                entity = await telegram_client.get_entity(channel_username)
+                username = channel_username.strip("@")
 
-        translated = translate_to_french(original_text) if original_text else ""
-        post_link = f"https://t.me/{username}/{event.message.id}"
+                async for message in telegram_client.iter_messages(entity, limit=10):
+                    if message.id <= last_ids.get(channel_username, 0):
+                        break
 
-        content = f"{label}\n\n{translated}\n\n🔗 [Voir la source]({post_link})"
+                    if not message.text and not message.photo:
+                        continue
 
-        try:
-            if event.photo:
-                path = await event.download_media()
-                with open(path, 'rb') as f:
-                    await actus_channel.send(content=content, file=discord.File(f))
-                if os.path.exists(path):
-                    os.remove(path)
-            else:
-                await actus_channel.send(content)
-            print(f"✅ Message {label} envoyé sur Discord")
-        except Exception as e:
-            print(f"❌ Erreur Discord: {e}")
+                    translated = translate_to_french(message.text) if message.text else ""
+                    post_link = f"https://t.me/{username}/{message.id}"
+                    content = f"{label}\n\n{translated}\n\n🔗 [Voir la source]({post_link})"
+
+                    if message.photo:
+                        path = await message.download_media()
+                        with open(path, 'rb') as f:
+                            await actus_channel.send(content=content, file=discord.File(f))
+                        if os.path.exists(path):
+                            os.remove(path)
+                    else:
+                        await actus_channel.send(content)
+
+                    print(f"✅ Nouveau message {channel_username} envoyé")
+
+                # Met à jour le dernier ID
+                async for message in telegram_client.iter_messages(entity, limit=1):
+                    last_ids[channel_username] = message.id
+
+            except Exception as e:
+                print(f"❌ Erreur polling {channel_username}: {e}")
 
 @discord_client.event
 async def on_ready():
     print(f"🤖 Connecté : {discord_client.user}")
     asyncio.create_task(update_channels())
-    asyncio.create_task(setup_telegram_listener())
+    asyncio.create_task(poll_telegram())
 
 async def main():
     await telegram_client.connect()
