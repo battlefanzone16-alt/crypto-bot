@@ -163,9 +163,14 @@ async def on_ready():
     discord_client.loop.create_task(watch_telegram())
 
 async def main():
-    await telegram_client.start()
+    await telegram_client.connect()
 
-    # Sauvegarde la session si elle a changé
+    if not await telegram_client.is_user_authorized():
+        print("❌ Session invalide ou expirée !")
+        return
+
+    print("✅ Telegram connecté !")
+
     current_session = telegram_client.session.save()
     if current_session != TELEGRAM_SESSION:
         print("🔄 Session changée, sauvegarde sur Railway...")
