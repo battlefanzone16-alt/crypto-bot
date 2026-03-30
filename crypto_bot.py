@@ -134,14 +134,14 @@ async def setup_telegram_listener():
     for channel_username, label in TELEGRAM_CHANNELS.items():
         try:
             entity = await telegram_client.get_entity(channel_username)
-            channel_entities[entity.id] = label
+            channel_entities[entity.id] = (label, channel_username.strip("@"))
             print(f"✅ Canal Telegram trouvé : {channel_username}")
 
-         # Envoie le dernier message texte au démarrage pour tester
             async for message in telegram_client.iter_messages(entity, limit=10):
                 if message.text and len(message.text) > 5:
                     translated = translate_to_french(message.text)
-                    content = f"{label} _(dernier message)_\n\n{translated}\n\n**Original :**\n||{message.text}||"
+                    post_link = f"https://t.me/{channel_username.strip('@')}/{message.id}"
+                    content = f"{label} _(dernier message)_\n\n{translated}\n\n**Original :**\n||{message.text}||\n\n🔗 [Voir la source]({post_link})"
                     await actus_channel.send(content)
                     print(f"✅ Dernier message {channel_username} envoyé")
                     break
@@ -154,13 +154,18 @@ async def setup_telegram_listener():
     @telegram_client.on(events.NewMessage(chats=list(channel_entities.keys())))
     async def handler(event):
         original_text = event.message.text
-        label = channel_entities.get(event.chat_id, "📢 **Actu**")
+        label, username = channel_entities.get(event.chat_id, ("📢 **Actu**", ""))
 
         if not original_text and not event.photo:
             return
 
         translated = translate_to_french(original_text) if original_text else ""
-        content = f"{label}\n\n{translated}\n\n**Original :**\n||{original_text}||"
+        post_link = f"https://t.me/{username}/{event.message.id}"
+
+        content = f"{label}\n\n{translated}"
+        if original_text:
+            content += f"\n\n**Original :**\n||{original_text}||"
+        content += f"\n\n🔗 [Voir la source]({post_link})"
 
         try:
             if event.photo:
