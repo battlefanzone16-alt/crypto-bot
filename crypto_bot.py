@@ -16,8 +16,11 @@ GUILD_NAME = "The Crypto Bro"
 DISCORD_ACTUS_CHANNEL = "actus"
 
 TELEGRAM_CHANNELS = {
-    "@WalterBloomberg": "📢 **Walter Bloomberg**",
-    "@watcherguru": "👁️ **Watcher Guru**"
+    "@WalterBloomberg": ("📢 **Walter Bloomberg**", True),
+    "@watcherguru": ("👁️ **Watcher Guru**", True),
+    "@cointelegraph": ("📰 **CoinTelegraph**", True),
+    "@cryptoast_fr": ("🇫🇷 **CryptoAst**", False),
+    "@journalducoin_fr": ("🇫🇷 **Journal du Coin**", False),
 }
 
 intents = discord.Intents.default()
@@ -128,7 +131,6 @@ async def poll_telegram():
         print("❌ Channel 'actus' introuvable")
         return
 
-    # Mémorise le dernier ID de message pour chaque canal
     last_ids = {}
 
     for channel_username in TELEGRAM_CHANNELS:
@@ -141,16 +143,16 @@ async def poll_telegram():
             print(f"❌ Erreur init {channel_username}: {e}")
             last_ids[channel_username] = 0
 
-    # Envoie le dernier message de chaque canal au démarrage pour tester
-    for channel_username, label in TELEGRAM_CHANNELS.items():
+    # Test démarrage
+    for channel_username, (label, translate) in TELEGRAM_CHANNELS.items():
         try:
             entity = await telegram_client.get_entity(channel_username)
             username = channel_username.strip("@")
             async for message in telegram_client.iter_messages(entity, limit=10):
                 if message.text and len(message.text) > 5:
-                    translated = translate_to_french(message.text)
+                    text = translate_to_french(message.text) if translate else message.text
                     post_link = f"https://t.me/{username}/{message.id}"
-                    content = f"{label} _(test démarrage)_\n\n{translated}\n\n🔗 [Voir la source]({post_link})"
+                    content = f"{label} _(test démarrage)_\n\n{text}\n\n🔗 [Voir la source]({post_link})"
                     await actus_channel.send(content)
                     print(f"✅ Message test {channel_username} envoyé")
                     break
@@ -162,7 +164,7 @@ async def poll_telegram():
     while True:
         await asyncio.sleep(60)
 
-        for channel_username, label in TELEGRAM_CHANNELS.items():
+        for channel_username, (label, translate) in TELEGRAM_CHANNELS.items():
             try:
                 entity = await telegram_client.get_entity(channel_username)
                 username = channel_username.strip("@")
@@ -174,9 +176,9 @@ async def poll_telegram():
                     if not message.text and not message.photo:
                         continue
 
-                    translated = translate_to_french(message.text) if message.text else ""
+                    text = translate_to_french(message.text) if translate and message.text else message.text or ""
                     post_link = f"https://t.me/{username}/{message.id}"
-                    content = f"{label}\n\n{translated}\n\n🔗 [Voir la source]({post_link})"
+                    content = f"{label}\n\n{text}\n\n🔗 [Voir la source]({post_link})"
 
                     if message.photo:
                         path = await message.download_media()
