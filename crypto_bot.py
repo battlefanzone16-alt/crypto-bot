@@ -141,10 +141,11 @@ async def setup_telegram_listener():
         return
 
     # 🔥 Recherche robuste du channel "actus"
+  
     actus_channel = discord.utils.find(
-        lambda c: c.name.strip().lower() == DISCORD_ACTUS_CHANNEL.lower(),
-        guild.text_channels
-    )
+    lambda c: DISCORD_ACTUS_CHANNEL.lower() in c.name.lower(),
+    guild.text_channels
+)
 
     # DEBUG (tu peux supprimer après)
     print("📂 Channels détectés :")
