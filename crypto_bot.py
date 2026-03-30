@@ -2,10 +2,16 @@ import discord
 import requests
 import asyncio
 import os
+from telethon import TelegramClient, events
+from deep_translator import GoogleTranslator
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CMC_API_KEY = os.environ.get("CMC_API_KEY")
+TELEGRAM_API_ID = int(os.environ.get("TELEGRAM_API_ID"))
+TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH")
 GUILD_NAME = "The Crypto Bro"
+TELEGRAM_CHANNEL = "WalterBloomberg"
+DISCORD_ACTUS_CHANNEL = "actus"
 
 def get_crypto_data():
     url = "https://api.coinbase.com/v2/exchange-rates?currency=USD"
@@ -30,19 +36,26 @@ def get_fear_greed():
     classification = data["data"]["value_classification"]
     return value, classification
 
+def translate_to_french(text):
+    try:
+        return GoogleTranslator(source="auto", target="fr").translate(text)
+    except:
+        return text
+
 def make_channel_name(symbol, price, change):
     arrow = "▲" if change >= 0 else "▼"
     dot = "🟢" if change >= 0 else "🔴"
     return f"{dot}{symbol}-${price:,.0f}-{arrow}{abs(change):.1f}%"
 
 intents = discord.Intents.default()
-client = discord.Client(intents=intents)
+discord_client = discord.Client(intents=intents)
+telegram_client = TelegramClient("session", TELEGRAM_API_ID, TELEGRAM_API_HASH)
 
 async def update_channels():
-    await client.wait_until_ready()
+    await discord_client.wait_until_ready()
 
     guild = None
-    for g in client.guilds:
+    for g in discord_client.guilds:
         if g.name == GUILD_NAME:
             guild = g
             break
@@ -61,7 +74,7 @@ async def update_channels():
 
     prev_btc = None
 
-    while not client.is_closed():
+    while not discord_client.is_closed():
         try:
             btc_price, eth_price = get_crypto_data()
             btc_change = ((btc_price - prev_btc) / prev_btc * 100) if prev_btc else 0
@@ -86,13 +99,38 @@ async def update_channels():
             print(f"Mis à jour ! BTC=${btc_price:,.0f} Dom={dominance}% F&G={fear_value}")
 
         except Exception as e:
-            print(f"Erreur: {e}")
+            print(f"Erreur prix: {e}")
 
         await asyncio.sleep(300)
 
-@client.event
-async def on_ready():
-    print(f"Bot connecté : {client.user}")
-    client.loop.create_task(update_channels())
+async def watch_telegram():
+    await discord_client.wait_until_ready()
 
-client.run(TOKEN)
+    guild = None
+    for g in discord_client.guilds:
+        if g.name == GUILD_NAME:
+            guild = g
+            break
+
+    actus_channel = discord.utils.get(guild.text_channels, name=DISCORD_ACTUS_CHANNEL)
+
+    @telegram_client.on(events.NewMessage(chats=TELEGRAM_CHANNEL))
+    async def handler(event):
+        if event.message.text:
+            translated = translate_to_french(event.message.text)
+            await actus_channel.send(f"📢 **Walter Bloomberg**\n\n{translated}")
+            print(f"Nouveau tweet posté dans #actus")
+
+    await telegram_client.run_until_disconnected()
+
+@discord_client.event
+async def on_ready():
+    print(f"Bot connecté : {discord_client.user}")
+    discord_client.loop.create_task(update_channels())
+    discord_client.loop.create_task(watch_telegram())
+
+async def main():
+    await telegram_client.start()
+    await discord_client.start(TOKEN)
+
+asyncio.run(main())
