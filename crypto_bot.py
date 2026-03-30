@@ -3,12 +3,17 @@ import requests
 import asyncio
 import os
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from deep_translator import GoogleTranslator
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CMC_API_KEY = os.environ.get("CMC_API_KEY")
 TELEGRAM_API_ID = os.environ.get("TELEGRAM_API_ID")
 TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH")
+TELEGRAM_SESSION = os.environ.get("TELEGRAM_SESSION")
+RAILWAY_TOKEN = os.environ.get("RAILWAY_TOKEN")
+RAILWAY_SERVICE_ID = os.environ.get("RAILWAY_SERVICE_ID")
+
 GUILD_NAME = "The Crypto Bro"
 TELEGRAM_CHANNEL = "WalterBloomberg"
 DISCORD_ACTUS_CHANNEL = "actus"
@@ -47,9 +52,37 @@ def make_channel_name(symbol, price, change):
     dot = "🟢" if change >= 0 else "🔴"
     return f"{dot}{symbol}-${price:,.0f}-{arrow}{abs(change):.1f}%"
 
+async def update_session_on_railway(new_session: str):
+    url = "https://backboard.railway.app/graphql/v2"
+    headers = {
+        "Authorization": f"Bearer {RAILWAY_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    query = """
+    mutation($serviceId: String!, $envs: [EnvironmentVariableInput!]!) {
+        serviceEnvironmentVariableUpsert(serviceId: $serviceId, envs: $envs)
+    }
+    """
+    payload = {
+        "query": query,
+        "variables": {
+            "serviceId": RAILWAY_SERVICE_ID,
+            "envs": [{"name": "TELEGRAM_SESSION", "value": new_session}]
+        }
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers)
+        print("✅ Session Railway mise à jour")
+    except Exception as e:
+        print(f"❌ Erreur mise à jour session: {e}")
+
 intents = discord.Intents.default()
 discord_client = discord.Client(intents=intents)
-telegram_client = TelegramClient("session", int(TELEGRAM_API_ID), TELEGRAM_API_HASH)
+telegram_client = TelegramClient(
+    StringSession(TELEGRAM_SESSION),
+    int(TELEGRAM_API_ID),
+    TELEGRAM_API_HASH
+)
 
 async def update_channels():
     await discord_client.wait_until_ready()
@@ -131,6 +164,13 @@ async def on_ready():
 
 async def main():
     await telegram_client.start()
+
+    # Sauvegarde la session si elle a changé
+    current_session = telegram_client.session.save()
+    if current_session != TELEGRAM_SESSION:
+        print("🔄 Session changée, sauvegarde sur Railway...")
+        await update_session_on_railway(current_session)
+
     await discord_client.start(TOKEN)
 
 asyncio.run(main())
