@@ -141,6 +141,22 @@ async def poll_telegram():
             print(f"❌ Erreur init {channel_username}: {e}")
             last_ids[channel_username] = 0
 
+    # Envoie le dernier message de chaque canal au démarrage pour tester
+    for channel_username, label in TELEGRAM_CHANNELS.items():
+        try:
+            entity = await telegram_client.get_entity(channel_username)
+            username = channel_username.strip("@")
+            async for message in telegram_client.iter_messages(entity, limit=10):
+                if message.text and len(message.text) > 5:
+                    translated = translate_to_french(message.text)
+                    post_link = f"https://t.me/{username}/{message.id}"
+                    content = f"{label} _(test démarrage)_\n\n{translated}\n\n🔗 [Voir la source]({post_link})"
+                    await actus_channel.send(content)
+                    print(f"✅ Message test {channel_username} envoyé")
+                    break
+        except Exception as e:
+            print(f"❌ Erreur test {channel_username}: {e}")
+
     print("👀 Polling Telegram actif (toutes les 60 secondes)")
 
     while True:
@@ -173,7 +189,6 @@ async def poll_telegram():
 
                     print(f"✅ Nouveau message {channel_username} envoyé")
 
-                # Met à jour le dernier ID
                 async for message in telegram_client.iter_messages(entity, limit=1):
                     last_ids[channel_username] = message.id
 
