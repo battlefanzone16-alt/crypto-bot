@@ -21,7 +21,7 @@ BTC_ALERT_THRESHOLD = 4.9
 TELEGRAM_CHANNELS = {
     "@WalterBloomberg": ("📢 **Walter Bloomberg**", True, False),
     "@watcherguru": ("👁️ **Watcher Guru**", True, False),
-    "@cointelegraph": ("📰 **CoinTelegraph**", True, False),
+    "@cointelegraph": ("📰 **CoinTelegraph**", True, True),
     "@cryptoast_fr": ("🇫🇷 **CryptoAst**", False, True),
     "@journalducoin_fr": ("🇫🇷 **Journal du Coin**", False, False),
 }
@@ -100,9 +100,10 @@ def get_eth_change_24h():
 
 def get_gold_price():
     try:
-        r = requests.get("https://api.metals.live/v1/spot/gold")
+        r = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/GC=F", headers={"User-Agent": "Mozilla/5.0"})
         data = r.json()
-        return round(data[0]["gold"], 2)
+        price = data["chart"]["result"][0]["meta"]["regularMarketPrice"]
+        return round(price, 2)
     except:
         return None
 
@@ -218,7 +219,6 @@ async def update_channels():
             btc, eth = get_crypto_data()
             btc_change = ((btc - prev_btc) / prev_btc * 100) if prev_btc else 0
 
-            # Alerte BTC
             if prev_btc and abs(btc_change) >= BTC_ALERT_THRESHOLD:
                 if not alert_sent:
                     guild = discord.utils.get(discord_client.guilds, name=GUILD_NAME)
@@ -284,7 +284,6 @@ async def daily_summary():
         print("❌ Channel 'actus' introuvable")
         return
 
-    # Résumé au démarrage
     await post_summary(actus_channel, label="🚀 **Résumé de démarrage**")
 
     while True:
@@ -326,7 +325,6 @@ async def poll_telegram():
             print(f"❌ Erreur init {channel_username}: {e}")
             last_ids[channel_username] = 0
 
-    # Test démarrage
     for channel_username, (label, translate, suppress) in TELEGRAM_CHANNELS.items():
         try:
             entity = await telegram_client.get_entity(channel_username)
