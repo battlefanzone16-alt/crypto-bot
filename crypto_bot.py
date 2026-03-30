@@ -13,8 +13,12 @@ TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH")
 TELEGRAM_SESSION = os.environ.get("TELEGRAM_SESSION")
 
 GUILD_NAME = "The Crypto Bro"
-TELEGRAM_CHANNEL = "@WalterBloomberg"
 DISCORD_ACTUS_CHANNEL = "actus"
+
+TELEGRAM_CHANNELS = {
+    "@WalterBloomberg": "📢 **Walter Bloomberg**",
+    "@watcherguru": "👁️ **Watcher Guru**"
+}
 
 intents = discord.Intents.default()
 discord_client = discord.Client(intents=intents)
@@ -125,34 +129,37 @@ async def setup_telegram_listener():
         return
 
     print(f"✅ Channel trouvé : {actus_channel.name}")
+
+    channel_entities = {}
+    for channel_username, label in TELEGRAM_CHANNELS.items():
+        try:
+            entity = await telegram_client.get_entity(channel_username)
+            channel_entities[entity.id] = label
+            print(f"✅ Canal Telegram trouvé : {channel_username}")
+
+            # Envoie le dernier message au démarrage pour tester
+            async for message in telegram_client.iter_messages(entity, limit=1):
+                if message.text:
+                    translated = translate_to_french(message.text)
+                    content = f"{label} _(dernier message)_\n\n{translated}\n\n**Original :**\n||{message.text}||"
+                    await actus_channel.send(content)
+                    print(f"✅ Dernier message {channel_username} envoyé")
+
+        except Exception as e:
+            print(f"❌ Erreur canal {channel_username}: {e}")
+
     print("👀 Surveillance Telegram active")
 
-    try:
-        channel = await telegram_client.get_entity(TELEGRAM_CHANNEL)
-    except Exception as e:
-        print(f"❌ Erreur Telegram: {e}")
-        return
-
-    # Envoie le dernier message au démarrage pour tester
-    try:
-        async for message in telegram_client.iter_messages(channel, limit=1):
-            if message.text:
-                translated = translate_to_french(message.text)
-                content = f"📢 **Walter Bloomberg** _(dernier message)_\n\n{translated}\n\n**Original :**\n||{message.text}||"
-                await actus_channel.send(content)
-                print("✅ Dernier message Telegram envoyé sur Discord")
-    except Exception as e:
-        print(f"❌ Erreur récupération dernier message: {e}")
-
-    @telegram_client.on(events.NewMessage(chats=channel))
+    @telegram_client.on(events.NewMessage(chats=list(channel_entities.keys())))
     async def handler(event):
         original_text = event.message.text
+        label = channel_entities.get(event.chat_id, "📢 **Actu**")
 
         if not original_text and not event.photo:
             return
 
         translated = translate_to_french(original_text) if original_text else ""
-        content = f"📢 **Walter Bloomberg**\n\n{translated}\n\n**Original :**\n||{original_text}||"
+        content = f"{label}\n\n{translated}\n\n**Original :**\n||{original_text}||"
 
         try:
             if event.photo:
@@ -163,7 +170,7 @@ async def setup_telegram_listener():
                     os.remove(path)
             else:
                 await actus_channel.send(content)
-            print("✅ Message envoyé sur Discord")
+            print(f"✅ Message {label} envoyé sur Discord")
         except Exception as e:
             print(f"❌ Erreur Discord: {e}")
 
