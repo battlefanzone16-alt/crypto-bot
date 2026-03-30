@@ -141,7 +141,7 @@ async def setup_telegram_listener():
                 if message.text and len(message.text) > 5:
                     translated = translate_to_french(message.text)
                     post_link = f"https://t.me/{channel_username.strip('@')}/{message.id}"
-                    content = f"{label} _(dernier message)_\n\n{translated}\n\n**Original :**\n||{message.text}||\n\n🔗 [Voir la source]({post_link})"
+                    content = f"{label} _(dernier message)_\n\n{translated}\n\n🔗 [Voir la source]({post_link})"
                     await actus_channel.send(content)
                     print(f"✅ Dernier message {channel_username} envoyé")
                     break
@@ -162,10 +162,7 @@ async def setup_telegram_listener():
         translated = translate_to_french(original_text) if original_text else ""
         post_link = f"https://t.me/{username}/{event.message.id}"
 
-        content = f"{label}\n\n{translated}"
-        if original_text:
-            content += f"\n\n**Original :**\n||{original_text}||"
-        content += f"\n\n🔗 [Voir la source]({post_link})"
+        content = f"{label}\n\n{translated}\n\n🔗 [Voir la source]({post_link})"
 
         try:
             if event.photo:
