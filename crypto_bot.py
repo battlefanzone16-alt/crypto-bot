@@ -137,13 +137,14 @@ async def setup_telegram_listener():
             channel_entities[entity.id] = label
             print(f"✅ Canal Telegram trouvé : {channel_username}")
 
-            # Envoie le dernier message au démarrage pour tester
-            async for message in telegram_client.iter_messages(entity, limit=1):
-                if message.text:
+         # Envoie le dernier message texte au démarrage pour tester
+            async for message in telegram_client.iter_messages(entity, limit=10):
+                if message.text and len(message.text) > 5:
                     translated = translate_to_french(message.text)
                     content = f"{label} _(dernier message)_\n\n{translated}\n\n**Original :**\n||{message.text}||"
                     await actus_channel.send(content)
                     print(f"✅ Dernier message {channel_username} envoyé")
+                    break
 
         except Exception as e:
             print(f"❌ Erreur canal {channel_username}: {e}")
