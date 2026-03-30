@@ -6,7 +6,6 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from deep_translator import GoogleTranslator
 
-# ===== ENV =====
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CMC_API_KEY = os.environ.get("CMC_API_KEY")
 TELEGRAM_API_ID = int(os.environ.get("TELEGRAM_API_ID"))
@@ -17,18 +16,14 @@ GUILD_NAME = "The Crypto Bro"
 TELEGRAM_CHANNEL = "@WalterBloomberg"
 DISCORD_ACTUS_CHANNEL = "actus"
 
-# ===== DISCORD =====
 intents = discord.Intents.default()
 discord_client = discord.Client(intents=intents)
-
-# ===== TELEGRAM =====
 telegram_client = TelegramClient(
     StringSession(TELEGRAM_SESSION),
     TELEGRAM_API_ID,
     TELEGRAM_API_HASH
 )
 
-# ===== UTILS =====
 def translate_to_french(text):
     try:
         return GoogleTranslator(source="auto", target="fr").translate(text)
@@ -36,79 +31,34 @@ def translate_to_french(text):
         print(f"⚠️ Erreur traduction: {e}")
         return text
 
-def safe_json(response):
-    try:
-        return response.json()
-    except Exception:
-        print("❌ Réponse invalide:", response.text[:200])
-        raise
-
-# ===== CRYPTO DATA =====
 def get_crypto_data():
     url = "https://api.coinbase.com/v2/exchange-rates?currency=USD"
     r = requests.get(url)
-
-    if r.status_code != 200:
-        raise Exception(f"Coinbase API error: {r.status_code}")
-
-    data = safe_json(r)
+    data = r.json()
     rates = data["data"]["rates"]
-
     btc_price = 1 / float(rates["BTC"])
     eth_price = 1 / float(rates["ETH"])
-
     return btc_price, eth_price
 
 def get_dominance():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
-
-    r = requests.get(url, headers=headers)
-
-    if r.status_code != 200:
-        raise Exception(f"CMC API error: {r.status_code}")
-
-    data = safe_json(r)
+    r = requests.get("https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest", headers=headers)
+    data = r.json()
     return round(data["data"]["btc_dominance"], 1)
 
-# ✅ Fear & Greed via CMC (comme ton ancien code + sécurisé)
 def get_fear_greed():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    url = "https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest"
+    r = requests.get("https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest", headers=headers)
+    data = r.json()
+    value = int(data["data"]["value"])
+    classification = data["data"]["value_classification"]
+    return value, classification
 
-    try:
-        r = requests.get(url, headers=headers)
-
-        if r.status_code != 200:
-            print(f"❌ CMC F&G HTTP {r.status_code} | {r.text[:100]}")
-            return 50, "Neutral"
-
-        try:
-            data = r.json()
-        except Exception:
-            print("❌ JSON invalide CMC:", r.text[:200])
-            return 50, "Neutral"
-
-        if "data" not in data or "value" not in data["data"]:
-            print("❌ Structure inattendue CMC:", data)
-            return 50, "Neutral"
-
-        value = int(data["data"]["value"])
-        classification = data["data"]["value_classification"]
-
-        return value, classification
-
-    except Exception as e:
-        print(f"❌ Erreur Fear&Greed CMC: {e}")
-        return 50, "Neutral"
-
-# ===== STYLE VISUEL =====
 def make_channel_name(symbol, price, change):
     arrow = "▲" if change >= 0 else "▼"
     dot = "🟢" if change >= 0 else "🔴"
     return f"{dot}{symbol}-${price:,.0f}-{arrow}{abs(change):.1f}%"
 
-# ===== UPDATE PRIX =====
 async def update_channels():
     await discord_client.wait_until_ready()
 
@@ -131,25 +81,16 @@ async def update_channels():
     while True:
         try:
             btc, eth = get_crypto_data()
-
             btc_change = ((btc - prev_btc) / prev_btc * 100) if prev_btc else 0
             prev_btc = btc
-
             dom = get_dominance()
             fg, fg_class = get_fear_greed()
 
-            await channels["bitcoin-price"].edit(
-                name=make_channel_name("BTC", btc, btc_change)
-            )
-
-            await channels["ethereum-price"].edit(
-                name=make_channel_name("ETH", eth, 0)
-            )
+            await channels["bitcoin-price"].edit(name=make_channel_name("BTC", btc, btc_change))
+            await channels["ethereum-price"].edit(name=make_channel_name("ETH", eth, 0))
 
             dom_dot = "🟢" if dom >= 50 else "🔴"
-            await channels["btc-dominance"].edit(
-                name=f"{dom_dot}BTC-Dom-{dom}%"
-            )
+            await channels["btc-dominance"].edit(name=f"{dom_dot}BTC-Dom-{dom}%")
 
             if fg >= 60:
                 fg_dot = "🟢"
@@ -157,10 +98,7 @@ async def update_channels():
                 fg_dot = "🔴"
             else:
                 fg_dot = "🟡"
-
-            await channels["fear-greed"].edit(
-                name=f"{fg_dot}F&G-{fg}-{fg_class}"
-            )
+            await channels["fear-greed"].edit(name=f"{fg_dot}F&G-{fg}-{fg_class}")
 
             print(f"✅ MAJ BTC={btc:,.0f} | Dom={dom}% | F&G={fg}")
 
@@ -169,7 +107,6 @@ async def update_channels():
 
         await asyncio.sleep(300)
 
-# ===== TELEGRAM → DISCORD =====
 async def setup_telegram_listener():
     await discord_client.wait_until_ready()
 
@@ -196,18 +133,26 @@ async def setup_telegram_listener():
         print(f"❌ Erreur Telegram: {e}")
         return
 
+    # Envoie le dernier message au démarrage pour tester
+    try:
+        async for message in telegram_client.iter_messages(channel, limit=1):
+            if message.text:
+                translated = translate_to_french(message.text)
+                content = f"📢 **Walter Bloomberg** _(dernier message)_\n\n{translated}\n\n**Original :**\n||{message.text}||"
+                await actus_channel.send(content)
+                print("✅ Dernier message Telegram envoyé sur Discord")
+    except Exception as e:
+        print(f"❌ Erreur récupération dernier message: {e}")
+
     @telegram_client.on(events.NewMessage(chats=channel))
     async def handler(event):
         original_text = event.message.text
-        
+
         if not original_text and not event.photo:
             return
 
         translated = translate_to_french(original_text) if original_text else ""
-        
-        content = f"📢 **Walter Bloomberg**\n\n{translated}"
-        if original_text:
-            content += f"\n\n**Original :**\n||{original_text}||"
+        content = f"📢 **Walter Bloomberg**\n\n{translated}\n\n**Original :**\n||{original_text}||"
 
         try:
             if event.photo:
@@ -222,15 +167,12 @@ async def setup_telegram_listener():
         except Exception as e:
             print(f"❌ Erreur Discord: {e}")
 
-# ===== EVENTS =====
 @discord_client.event
 async def on_ready():
     print(f"🤖 Connecté : {discord_client.user}")
-
     asyncio.create_task(update_channels())
     asyncio.create_task(setup_telegram_listener())
 
-# ===== MAIN =====
 async def main():
     await telegram_client.connect()
 
@@ -239,9 +181,7 @@ async def main():
         return
 
     print("✅ Telegram connecté")
-
     asyncio.create_task(telegram_client.run_until_disconnected())
-
     await discord_client.start(TOKEN)
 
 asyncio.run(main())
