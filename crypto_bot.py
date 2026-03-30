@@ -32,7 +32,8 @@ telegram_client = TelegramClient(
 def translate_to_french(text):
     try:
         return GoogleTranslator(source="auto", target="fr").translate(text)
-    except:
+    except Exception as e:
+        print(f"⚠️ Erreur traduction: {e}")
         return text
 
 def get_crypto_data():
@@ -63,7 +64,7 @@ def get_fear_greed():
     data = r.json()["data"]
     return int(data["value"]), data["value_classification"]
 
-# ===== STYLE VISUEL (RETOUR DES BULLES 🔥) =====
+# ===== STYLE VISUEL =====
 def make_channel_name(symbol, price, change):
     arrow = "▲" if change >= 0 else "▼"
     dot = "🟢" if change >= 0 else "🔴"
@@ -99,7 +100,6 @@ async def update_channels():
             dom = get_dominance()
             fg, fg_class = get_fear_greed()
 
-            # BTC & ETH avec bulles
             await channels["bitcoin-price"].edit(
                 name=make_channel_name("BTC", btc, btc_change)
             )
@@ -108,13 +108,11 @@ async def update_channels():
                 name=make_channel_name("ETH", eth, 0)
             )
 
-            # Dominance
             dom_dot = "🟢" if dom >= 50 else "🔴"
             await channels["btc-dominance"].edit(
                 name=f"{dom_dot}BTC-Dom-{dom}%"
             )
 
-            # Fear & Greed
             if fg >= 60:
                 fg_dot = "🟢"
             elif fg <= 40:
@@ -142,18 +140,29 @@ async def setup_telegram_listener():
         print("❌ Serveur introuvable")
         return
 
-    actus_channel = discord.utils.get(
-        guild.text_channels,
-        name=DISCORD_ACTUS_CHANNEL
+    # 🔥 Recherche robuste du channel "actus"
+    actus_channel = discord.utils.find(
+        lambda c: c.name.strip().lower() == DISCORD_ACTUS_CHANNEL.lower(),
+        guild.text_channels
     )
+
+    # DEBUG (tu peux supprimer après)
+    print("📂 Channels détectés :")
+    for ch in guild.text_channels:
+        print(f"-> '{ch.name}'")
 
     if not actus_channel:
         print("❌ Channel 'actus' introuvable")
         return
 
+    print(f"✅ Channel trouvé : {actus_channel.name}")
     print("👀 Surveillance Telegram active")
 
-    channel = await telegram_client.get_entity(TELEGRAM_CHANNEL)
+    try:
+        channel = await telegram_client.get_entity(TELEGRAM_CHANNEL)
+    except Exception as e:
+        print(f"❌ Erreur Telegram: {e}")
+        return
 
     @telegram_client.on(events.NewMessage(chats=channel))
     async def handler(event):
@@ -164,7 +173,7 @@ async def setup_telegram_listener():
                 await actus_channel.send(
                     f"📢 **Walter Bloomberg**\n\n{translated}"
                 )
-                print("✅ Message envoyé")
+                print("✅ Message envoyé sur Discord")
             except Exception as e:
                 print(f"❌ Erreur Discord: {e}")
 
