@@ -2,6 +2,7 @@ import discord
 import requests
 import asyncio
 import os
+from datetime import datetime, timezone, timedelta
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from deep_translator import GoogleTranslator
@@ -61,10 +62,115 @@ def get_fear_greed():
     classification = data["data"]["value_classification"]
     return value, classification
 
+def get_funding_rate():
+    try:
+        r = requests.get("https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT")
+        data = r.json()
+        rate = float(data["lastFundingRate"]) * 100
+        return round(rate, 4)
+    except Exception as e:
+        print(f"❌ Erreur funding rate: {e}")
+        return None
+
+def get_volume_24h():
+    try:
+        r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=BTCUSDT")
+        data = r.json()
+        volume = float(data["quoteVolume"]) / 1_000_000_000
+        return round(volume, 2)
+    except Exception as e:
+        print(f"❌ Erreur volume: {e}")
+        return None
+
+def get_btc_change_24h():
+    try:
+        r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=BTCUSDT")
+        data = r.json()
+        return round(float(data["priceChangePercent"]), 2)
+    except:
+        return None
+
+def get_eth_change_24h():
+    try:
+        r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=ETHUSDT")
+        data = r.json()
+        return round(float(data["priceChangePercent"]), 2)
+    except:
+        return None
+
 def make_channel_name(symbol, price, change):
     arrow = "▲" if change >= 0 else "▼"
     dot = "🟢" if change >= 0 else "🔴"
     return f"{dot}{symbol}-${price:,.0f}-{arrow}{abs(change):.1f}%"
+
+def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, volume, label="📊"):
+    paris_time = datetime.now(timezone(timedelta(hours=2)))
+    date_str = paris_time.strftime("%A %d %B %Y")
+
+    btc_dot = "🟢" if btc_change >= 0 else "🔴"
+    eth_dot = "🟢" if eth_change >= 0 else "🔴"
+    btc_arrow = "▲" if btc_change >= 0 else "▼"
+    eth_arrow = "▲" if eth_change >= 0 else "▼"
+
+    dom_dot = "🟢" if dom >= 50 else "🔴"
+
+    if fg >= 60:
+        fg_dot = "🟢"
+    elif fg <= 40:
+        fg_dot = "🔴"
+    else:
+        fg_dot = "🟡"
+
+    if funding is not None:
+        if funding > 0.01:
+            f_dot = "🔴"
+            f_label = "marché suracheté"
+        elif funding < -0.01:
+            f_dot = "🟢"
+            f_label = "marché survendu"
+        else:
+            f_dot = "🟡"
+            f_label = "marché neutre"
+        funding_line = f"{f_dot} Funding Rate BTC : {funding}% ({f_label})"
+    else:
+        funding_line = "⚠️ Funding Rate indisponible"
+
+    if volume is not None:
+        volume_line = f"📊 Volume 24h BTC : ${volume}B"
+    else:
+        volume_line = "⚠️ Volume indisponible"
+
+    return f"""
+{label} **Résumé des marchés — {date_str}**
+
+**💰 Prix**
+{btc_dot} BTC : ${btc:,.0f} — {btc_arrow} {abs(btc_change):.2f}% (24h)
+{eth_dot} ETH : ${eth:,.0f} — {eth_arrow} {abs(eth_change):.2f}% (24h)
+
+**🧠 Sentiment**
+{fg_dot} Fear & Greed : {fg} — {fg_class}
+{dom_dot} Dominance BTC : {dom}%
+
+**📈 Marché**
+{volume_line}
+{funding_line}
+""".strip()
+
+async def post_summary(actus_channel, label="📊"):
+    try:
+        btc, eth = get_crypto_data()
+        btc_change = get_btc_change_24h() or 0
+        eth_change = get_eth_change_24h() or 0
+        dom = get_dominance()
+        fg, fg_class = get_fear_greed()
+        funding = get_funding_rate()
+        volume = get_volume_24h()
+
+        message = build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, volume, label)
+        await actus_channel.send(message)
+        print(f"✅ Résumé posté dans #actus")
+    except Exception as e:
+        print(f"❌ Erreur résumé: {e}")
 
 async def update_channels():
     await discord_client.wait_until_ready()
@@ -113,6 +219,37 @@ async def update_channels():
             print(f"❌ Erreur prix: {e}")
 
         await asyncio.sleep(300)
+
+async def daily_summary():
+    await discord_client.wait_until_ready()
+
+    guild = discord.utils.get(discord_client.guilds, name=GUILD_NAME)
+    if not guild:
+        print("❌ Serveur introuvable")
+        return
+
+    actus_channel = discord.utils.find(
+        lambda c: DISCORD_ACTUS_CHANNEL.lower() in c.name.lower(),
+        guild.text_channels
+    )
+
+    if not actus_channel:
+        print("❌ Channel 'actus' introuvable")
+        return
+
+    # Résumé au démarrage
+    await post_summary(actus_channel, label="🚀 **Résumé de démarrage**")
+
+    # Boucle quotidienne à 8h heure de Paris
+    while True:
+        paris_now = datetime.now(timezone(timedelta(hours=2)))
+        next_8h = paris_now.replace(hour=8, minute=0, second=0, microsecond=0)
+        if paris_now >= next_8h:
+            next_8h += timedelta(days=1)
+        wait_seconds = (next_8h - paris_now).total_seconds()
+        print(f"⏰ Prochain résumé dans {int(wait_seconds // 3600)}h {int((wait_seconds % 3600) // 60)}min")
+        await asyncio.sleep(wait_seconds)
+        await post_summary(actus_channel, label="🌅 **Résumé matinal**")
 
 async def poll_telegram():
     await discord_client.wait_until_ready()
@@ -201,6 +338,7 @@ async def poll_telegram():
 async def on_ready():
     print(f"🤖 Connecté : {discord_client.user}")
     asyncio.create_task(update_channels())
+    asyncio.create_task(daily_summary())
     asyncio.create_task(poll_telegram())
 
 async def main():
