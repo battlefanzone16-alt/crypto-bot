@@ -7,7 +7,7 @@ from deep_translator import GoogleTranslator
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CMC_API_KEY = os.environ.get("CMC_API_KEY")
-TELEGRAM_API_ID = int(os.environ.get("TELEGRAM_API_ID"))
+TELEGRAM_API_ID = os.environ.get("TELEGRAM_API_ID")
 TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH")
 GUILD_NAME = "The Crypto Bro"
 TELEGRAM_CHANNEL = "WalterBloomberg"
@@ -49,7 +49,7 @@ def make_channel_name(symbol, price, change):
 
 intents = discord.Intents.default()
 discord_client = discord.Client(intents=intents)
-telegram_client = TelegramClient("session", TELEGRAM_API_ID, TELEGRAM_API_HASH)
+telegram_client = TelegramClient("session", int(TELEGRAM_API_ID), TELEGRAM_API_HASH)
 
 async def update_channels():
     await discord_client.wait_until_ready()
@@ -119,7 +119,7 @@ async def watch_telegram():
         if event.message.text:
             translated = translate_to_french(event.message.text)
             await actus_channel.send(f"📢 **Walter Bloomberg**\n\n{translated}")
-            print(f"Nouveau tweet posté dans #actus")
+            print(f"Nouveau message posté dans #actus")
 
     await telegram_client.run_until_disconnected()
 
