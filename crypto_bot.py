@@ -43,7 +43,7 @@ def safe_json(response):
         print("❌ Réponse invalide:", response.text[:200])
         raise
 
-# ✅ FIX ICI
+# ===== CRYPTO DATA =====
 def get_crypto_data():
     url = "https://api.coinbase.com/v2/exchange-rates?currency=USD"
     r = requests.get(url)
@@ -59,7 +59,6 @@ def get_crypto_data():
 
     return btc_price, eth_price
 
-# ✅ FIX ICI
 def get_dominance():
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
     url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
@@ -72,16 +71,36 @@ def get_dominance():
     data = safe_json(r)
     return round(data["data"]["btc_dominance"], 1)
 
-# ✅ FIX ICI (API correcte pour Fear & Greed)
+# ✅ Fear & Greed via CMC (comme ton ancien code + sécurisé)
 def get_fear_greed():
-    url = "https://api.alternative.me/fng/"
-    r = requests.get(url)
+    headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
+    url = "https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest"
 
-    if r.status_code != 200:
-        raise Exception(f"F&G API error: {r.status_code}")
+    try:
+        r = requests.get(url, headers=headers)
 
-    data = safe_json(r)["data"][0]
-    return int(data["value"]), data["value_classification"]
+        if r.status_code != 200:
+            print(f"❌ CMC F&G HTTP {r.status_code} | {r.text[:100]}")
+            return 50, "Neutral"
+
+        try:
+            data = r.json()
+        except Exception:
+            print("❌ JSON invalide CMC:", r.text[:200])
+            return 50, "Neutral"
+
+        if "data" not in data or "value" not in data["data"]:
+            print("❌ Structure inattendue CMC:", data)
+            return 50, "Neutral"
+
+        value = int(data["data"]["value"])
+        classification = data["data"]["value_classification"]
+
+        return value, classification
+
+    except Exception as e:
+        print(f"❌ Erreur Fear&Greed CMC: {e}")
+        return 50, "Neutral"
 
 # ===== STYLE VISUEL =====
 def make_channel_name(symbol, price, change):
