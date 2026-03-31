@@ -36,6 +36,24 @@ telegram_client = TelegramClient(
 )
 
 daily_news = []
+# Stocke (texte_50_chars, timestamp) des messages récents
+recent_posts = []
+
+def is_duplicate(text):
+    now = datetime.now(timezone.utc)
+    key = text[:50].lower().strip()
+    for past_key, past_time in recent_posts:
+        if past_key == key and (now - past_time).total_seconds() <= 300:
+            return True
+    return False
+
+def add_to_recent(text):
+    now = datetime.now(timezone.utc)
+    key = text[:50].lower().strip()
+    recent_posts.append((key, now))
+    # Garde seulement les 50 derniers
+    if len(recent_posts) > 50:
+        recent_posts.pop(0)
 
 def translate_to_french(text):
     try:
@@ -511,13 +529,24 @@ async def poll_telegram():
                         continue
 
                     text = translate_to_french(message.text) if translate and message.text else message.text or ""
-
-                    # Tronque si trop long
-                    if len(text) > 1800:
-                        text = text[:1800] + "..."
-
                     post_link = f"https://t.me/{username}/{message.id}"
-                    content = f"{label}\n\n{text}\n\n🔗 [Voir la source]({post_link})"
+                    header = f"{label}\n\n"
+                    footer = f"\n\n🔗 [Voir la source]({post_link})"
+                    content = f"{header}{text}{footer}"
+
+                    # Ignore si trop long
+                    if len(content) > 2000:
+                        print(f"⚠️ Message {channel_username} trop long, ignoré")
+                        new_last_id = max(new_last_id, message.id)
+                        continue
+
+                    # Vérifie les doublons
+                    if is_duplicate(text):
+                        print(f"⚠️ Doublon détecté {channel_username}, ignoré")
+                        new_last_id = max(new_last_id, message.id)
+                        continue
+
+                    add_to_recent(text)
 
                     if text and len(text) > 10:
                         daily_news.append(f"[{label.replace('*', '').replace('_', '').strip()}] {text[:200]}")
