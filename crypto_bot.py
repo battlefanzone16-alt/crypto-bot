@@ -17,7 +17,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 GUILD_NAME = "The Crypto Bro"
 DISCORD_ACTUS_CHANNEL = "actus"
 DISCORD_CRYPTO_CHANNEL = "crypto"
-BTC_ALERT_THRESHOLD = 4.9
+BTC_ALERT_THRESHOLD = 3.0
 
 TELEGRAM_CHANNELS = {
     "@WalterBloomberg": ("📢 **Walter Bloomberg**", True, False),
@@ -36,7 +36,6 @@ telegram_client = TelegramClient(
 )
 
 daily_news = []
-# Stocke (texte_50_chars, timestamp) des messages récents
 recent_posts = []
 
 def is_duplicate(text):
@@ -51,7 +50,6 @@ def add_to_recent(text):
     now = datetime.now(timezone.utc)
     key = text[:50].lower().strip()
     recent_posts.append((key, now))
-    # Garde seulement les 50 derniers
     if len(recent_posts) > 50:
         recent_posts.pop(0)
 
@@ -379,15 +377,19 @@ async def update_channels():
             ch = await guild.create_voice_channel(name)
         channels[name] = ch
 
-    prev_btc = None
+    btc_history = []
     alert_sent = False
 
     while True:
         try:
             btc, eth = get_crypto_data()
-            btc_change = ((btc - prev_btc) / prev_btc * 100) if prev_btc else 0
+            btc_history.append(btc)
+            if len(btc_history) > 3:
+                btc_history.pop(0)
 
-            if prev_btc and abs(btc_change) >= BTC_ALERT_THRESHOLD:
+            btc_change = ((btc - btc_history[0]) / btc_history[0] * 100) if len(btc_history) == 3 else 0
+
+            if len(btc_history) == 3 and abs(btc_change) >= BTC_ALERT_THRESHOLD:
                 if not alert_sent:
                     guild = discord.utils.get(discord_client.guilds, name=GUILD_NAME)
                     actus_channel = discord.utils.find(
@@ -400,7 +402,7 @@ async def update_channels():
                     )
                     direction = "📈 PUMP" if btc_change > 0 else "📉 DUMP"
                     arrow = "▲" if btc_change > 0 else "▼"
-                    alert_msg = f"🚨 **ALERTE BTC** 🚨\n\n{direction} de **{arrow} {abs(btc_change):.2f}%** en 5 minutes !\n💰 Prix actuel : **${btc:,.0f}**"
+                    alert_msg = f"🚨 **ALERTE BTC** 🚨\n\n{direction} de **{arrow} {abs(btc_change):.2f}%** en 15 minutes !\n💰 Prix actuel : **${btc:,.0f}**"
                     if actus_channel:
                         await actus_channel.send(alert_msg)
                     if crypto_channel:
@@ -410,7 +412,6 @@ async def update_channels():
             else:
                 alert_sent = False
 
-            prev_btc = btc
             dom = get_dominance()
             fg, fg_class = get_fear_greed()
 
