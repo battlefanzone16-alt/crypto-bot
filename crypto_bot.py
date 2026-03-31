@@ -143,7 +143,6 @@ def get_weekly_calendar():
         r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", headers=headers)
         data = r.json()
 
-        # Filtre uniquement les événements USD à fort impact
         important = []
         for event in data:
             if event.get("country") == "USD" and event.get("impact") == "High":
@@ -152,13 +151,13 @@ def get_weekly_calendar():
                 forecast = event.get("forecast", "")
                 previous = event.get("previous", "")
 
-                # Parse la date
                 try:
                     dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                     paris_dt = dt.astimezone(timezone(timedelta(hours=2)))
                     day = paris_dt.strftime("%A %d/%m")
                     time = paris_dt.strftime("%H:%M")
                 except:
+                    paris_dt = datetime.now()
                     day = date_str[:10]
                     time = "?"
 
@@ -168,11 +167,9 @@ def get_weekly_calendar():
                 if previous:
                     line += f" | Précédent: `{previous}`"
 
-                important.append((paris_dt if 'paris_dt' in dir() else datetime.now(), line))
+                important.append((paris_dt, line))
 
-        # Trie par date
         important.sort(key=lambda x: x[0])
-
         return [line for _, line in important]
 
     except Exception as e:
@@ -305,8 +302,6 @@ async def post_weekly_calendar(actus_channel):
     try:
         events = get_weekly_calendar()
         paris_time = datetime.now(timezone(timedelta(hours=2)))
-
-        # Calcule les dates de début et fin de semaine
         monday = paris_time - timedelta(days=paris_time.weekday())
         sunday = monday + timedelta(days=6)
         week_str = f"{monday.strftime('%d/%m')} au {sunday.strftime('%d/%m/%Y')}"
@@ -439,7 +434,6 @@ async def daily_summary():
         print("❌ Channel 'actus' introuvable")
         return
 
-    # Poste le calendrier au démarrage cette semaine uniquement
     await post_weekly_calendar(actus_channel)
 
     while True:
@@ -462,7 +456,6 @@ async def daily_summary():
 
         if paris_now.hour == 8:
             await post_summary(actus_channel, label="🌅 **Résumé matinal**")
-            # Poste le calendrier chaque lundi matin
             if paris_now.weekday() == 0:
                 await post_weekly_calendar(actus_channel)
         elif paris_now.hour == 20:
@@ -507,34 +500,44 @@ async def poll_telegram():
             try:
                 entity = await telegram_client.get_entity(channel_username)
                 username = channel_username.strip("@")
+                new_last_id = last_ids.get(channel_username, 0)
 
                 async for message in telegram_client.iter_messages(entity, limit=10):
                     if message.id <= last_ids.get(channel_username, 0):
                         break
 
                     if not message.text and not message.photo:
+                        new_last_id = max(new_last_id, message.id)
                         continue
 
                     text = translate_to_french(message.text) if translate and message.text else message.text or ""
+
+                    # Tronque si trop long
+                    if len(text) > 1800:
+                        text = text[:1800] + "..."
+
                     post_link = f"https://t.me/{username}/{message.id}"
                     content = f"{label}\n\n{text}\n\n🔗 [Voir la source]({post_link})"
 
                     if text and len(text) > 10:
                         daily_news.append(f"[{label.replace('*', '').replace('_', '').strip()}] {text[:200]}")
 
-                    if message.photo:
-                        path = await message.download_media()
-                        with open(path, 'rb') as f:
-                            await actus_channel.send(content=content, file=discord.File(f), suppress_embeds=suppress)
-                        if os.path.exists(path):
-                            os.remove(path)
-                    else:
-                        await actus_channel.send(content, suppress_embeds=suppress)
+                    try:
+                        if message.photo:
+                            path = await message.download_media()
+                            with open(path, 'rb') as f:
+                                await actus_channel.send(content=content, file=discord.File(f), suppress_embeds=suppress)
+                            if os.path.exists(path):
+                                os.remove(path)
+                        else:
+                            await actus_channel.send(content, suppress_embeds=suppress)
+                        print(f"✅ Nouveau message {channel_username} envoyé")
+                    except Exception as e:
+                        print(f"❌ Erreur envoi Discord {channel_username}: {e}")
 
-                    print(f"✅ Nouveau message {channel_username} envoyé")
+                    new_last_id = max(new_last_id, message.id)
 
-                async for message in telegram_client.iter_messages(entity, limit=1):
-                    last_ids[channel_username] = message.id
+                last_ids[channel_username] = new_last_id
 
             except Exception as e:
                 print(f"❌ Erreur polling {channel_username}: {e}")
