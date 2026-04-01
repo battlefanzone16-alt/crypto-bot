@@ -12,7 +12,7 @@ CMC_API_KEY = os.environ.get("CMC_API_KEY")
 TELEGRAM_API_ID = int(os.environ.get("TELEGRAM_API_ID"))
 TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH")
 TELEGRAM_SESSION = os.environ.get("TELEGRAM_SESSION")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")  # ← Remplace ANTHROPIC_API_KEY
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 GUILD_NAME = "The Crypto Bro"
 DISCORD_ACTUS_CHANNEL = "actus"
@@ -26,11 +26,7 @@ TELEGRAM_CHANNELS = {
     "@cryptoast_fr": ("🇫🇷 **CryptoAst**", False, True),
     "@journalducoin_fr": ("🇫🇷 **Journal du Coin**", False, False),
 }
-api_key = os.getenv("GEMINI_API_KEY")
 
-if not api_key:
-    print("Erreur : La variable d'environnement GEMINI_API_KEY est vide !")
-    
 intents = discord.Intents.default()
 discord_client = discord.Client(intents=intents)
 telegram_client = TelegramClient(
@@ -196,159 +192,36 @@ def get_weekly_calendar():
         print(f"❌ Erreur calendrier: {e}")
         return []
 
-# ============================================================
-# NOUVELLE FONCTION : récupère les messages du canal #actus
-# entre hier 20h01 et aujourd'hui 20h00 (heure de Paris)
-# ============================================================
-async def fetch_actus_messages(actus_channel):
-    paris_tz = timezone(timedelta(hours=2))
-    now_paris = datetime.now(paris_tz)
-
-    end_time   = now_paris.replace(hour=20, minute=0, second=0, microsecond=0)
-    start_time = end_time - timedelta(hours=23, minutes=59)
-
-    print(f"📅 Fenêtre de lecture : {start_time.strftime('%d/%m %H:%M')} → {end_time.strftime('%d/%m %H:%M')} (Paris)")
-    print(f"📅 Canal ciblé : #{actus_channel.name} (id={actus_channel.id})")
-
-    collected = []
-    total_seen = 0
-    skipped_empty = 0
-
+def get_ai_summary(news_list):
     try:
-        async for msg in actus_channel.history(
-            limit=500,
-            after=start_time.astimezone(timezone.utc),
-            before=end_time.astimezone(timezone.utc),
-            oldest_first=True
-        ):
-            total_seen += 1
+        if not news_list:
+            return None
 
-            # ❌ ANCIEN CODE : on ignorait les bots → c'est faux car le bot poste lui-même les actus
-            # On garde uniquement le filtre sur les messages vides
-            if not msg.content or len(msg.content.strip()) < 10:
-                skipped_empty += 1
-                continue
+        news_text = "\n".join([f"- {n}" for n in news_list])
 
-            collected.append(msg.content.strip())
-
-        print(f"📨 Messages vus au total : {total_seen}")
-        print(f"📨 Messages ignorés (vides) : {skipped_empty}")
-        print(f"📨 Messages retenus : {len(collected)}")
-
-        # Aperçu des 3 premiers pour vérif dans les logs
-        for i, m in enumerate(collected[:3]):
-            print(f"   [{i+1}] {m[:80]}...")
-
-    except discord.errors.Forbidden:
-        print(f"❌ PERMISSION REFUSÉE sur #{actus_channel.name} — ajoute 'Read Message History' au bot !")
-    except Exception as e:
-        print(f"❌ Erreur lecture historique #actus : {type(e).__name__}: {e}")
-
-    return collected
-
-# ============================================================
-# NOUVELLE FONCTION : appel API Gemini (gratuit)
-# ============================================================
-def get_ai_summary_gemini(news_list):
-    """
-    Envoie la liste d'actus à Gemini Flash et retourne le résumé.
-    Modèle utilisé : gemini-2.0-flash (gratuit, quota généreux).
-    """
-    if not GEMINI_API_KEY:
-        print("❌ GEMINI_API_KEY manquante dans les variables d'environnement !")
-        return None
-
-    if not news_list:
-        print("⚠️ Liste d'actus vide, pas d'appel Gemini")
-        return None
-
-    # Limite à 60 messages pour ne pas dépasser le contexte
-    news_list = news_list[-60:]
-    print(f"📋 Envoi de {len(news_list)} actus à Gemini...")
-
-    news_text = "\n".join([f"- {n}" for n in news_list])
-
-    prompt = f"""Tu es un expert en crypto-monnaies et finance. Voici les actus du jour postées sur un serveur Discord crypto.
-
-Résume les **3 à 5 points les plus importants** de manière concise, en français, en utilisant ce format Markdown Discord :
-
-**🔥 Récap crypto du jour**
-
-- **[Titre court du point 1]** : explication concise en 1-2 phrases.
-- **[Titre court du point 2]** : explication concise en 1-2 phrases.
-- **[Titre court du point 3]** : explication concise en 1-2 phrases.
-(etc.)
-
-Sois factuel, neutre et informatif. Ne mets rien avant ou après les points.
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1000,
+                "messages": [{
+                    "role": "user",
+                    "content": f"""Voici les actualités crypto du jour. Fais un résumé en français en exactement 5 points clés, chacun sur une ligne commençant par un emoji pertinent. Sois concis et informatif. Ne mets pas de titre, juste les 5 points.
 
 Actualités :
 {news_text}"""
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-
-    payload = {
-        "contents": [
-            {
-                "parts": [{"text": prompt}]
+                }]
             }
-        ],
-        "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 1024,
-        }
-    }
-
-    try:
-        print(f"📡 Appel API Gemini...")
-        response = requests.post(
-            url,
-            headers={"Content-Type": "application/json"},
-            json=payload,
-            timeout=30
         )
-
-        print(f"📡 Status HTTP Gemini : {response.status_code}")
-
-        if response.status_code != 200:
-            print(f"❌ Erreur HTTP Gemini : {response.status_code}")
-            print(f"❌ Réponse brute : {response.text[:500]}")
-            return None
-
         data = response.json()
-        print(f"📡 Réponse Gemini reçue, parsing...")
-
-        # Navigation dans la réponse Gemini
-        candidates = data.get("candidates", [])
-        if not candidates:
-            print(f"❌ Aucun candidat dans la réponse Gemini : {data}")
-            return None
-
-        candidate = candidates[0]
-
-        # Vérif finish_reason
-        finish_reason = candidate.get("finishReason", "")
-        if finish_reason not in ("STOP", "MAX_TOKENS", ""):
-            print(f"⚠️ Gemini finish_reason inhabituel : {finish_reason}")
-
-        content = candidate.get("content", {})
-        parts = content.get("parts", [])
-        if not parts:
-            print(f"❌ Aucune 'part' dans le contenu Gemini : {content}")
-            return None
-
-        text = parts[0].get("text", "").strip()
-        if not text:
-            print(f"❌ Texte vide retourné par Gemini")
-            return None
-
-        print(f"✅ Résumé Gemini généré ({len(text)} caractères)")
-        return text
-
-    except requests.exceptions.Timeout:
-        print("❌ Timeout API Gemini (30s dépassé)")
-        return None
+        return data["content"][0]["text"]
     except Exception as e:
-        print(f"❌ Erreur Gemini inattendue : {type(e).__name__}: {e}")
+        print(f"❌ Erreur IA: {e}")
         return None
 
 def make_channel_name(symbol, price, change):
@@ -462,59 +335,30 @@ async def post_weekly_calendar(actus_channel):
     except Exception as e:
         print(f"❌ Erreur calendrier: {e}")
 
-# ============================================================
-# RÉCAP IA — version Discord history (source principale)
-# + fallback sur daily_news (source Telegram)
-# ============================================================
 async def post_ai_recap(actus_channel):
     global daily_news
-    paris_time = datetime.now(timezone(timedelta(hours=2)))
-    date_str = paris_time.strftime("%d %B %Y")
+    try:
+        if not daily_news:
+            print("⚠️ Pas d'actus aujourd'hui pour le récap IA")
+            return
 
-    print(f"🤖 Démarrage récap IA — {date_str}")
-    print(f"   daily_news (Telegram) : {len(daily_news)} entrées")
+        print(f"🤖 Génération récap IA avec {len(daily_news)} actus...")
+        summary = get_ai_summary(daily_news)
 
-    # 1️⃣ Source prioritaire : historique Discord du canal #actus
-    discord_messages = await fetch_actus_messages(actus_channel)
-    print(f"   messages Discord #actus : {len(discord_messages)} entrées")
+        if not summary:
+            return
 
-    # 2️⃣ Fusion : Discord en premier, puis daily_news Telegram en complément
-    combined = discord_messages.copy()
-    for item in daily_news:
-        if item not in combined:
-            combined.append(item)
+        paris_time = datetime.now(timezone(timedelta(hours=2)))
+        date_str = paris_time.strftime("%d %B %Y")
 
-    print(f"   total messages combinés : {len(combined)}")
+        message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
+        await actus_channel.send(message)
+        print("✅ Récap IA posté")
 
-    if not combined:
-        print("⚠️ Aucune actus disponible pour le récap IA (Discord + Telegram vides)")
-        await actus_channel.send(
-            f"🤖 **Récap IA — {date_str}**\n\n"
-            "⚠️ Aucune actualité collectée aujourd'hui, récap impossible."
-        )
-        return
+        daily_news = []
 
-    summary = get_ai_summary_gemini(combined)
-
-    if not summary:
-        print("❌ Récap IA échoué — Gemini n'a pas retourné de résumé")
-        await actus_channel.send(
-            f"🤖 **Récap IA — {date_str}**\n\n"
-            "❌ Erreur lors de la génération du résumé IA. Consulte les logs Railway pour le détail."
-        )
-        return
-
-    message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
-
-    # Discord limite à 2000 caractères par message
-    if len(message) > 2000:
-        message = message[:1997] + "..."
-
-    await actus_channel.send(message)
-    print("✅ Récap IA posté avec succès")
-
-    # Réinitialise daily_news après publication
-    daily_news = []
+    except Exception as e:
+        print(f"❌ Erreur récap IA: {e}")
 
 async def update_channels():
     await discord_client.wait_until_ready()
@@ -611,11 +455,6 @@ async def daily_summary():
 
     await post_weekly_calendar(actus_channel)
 
-    # ✅ TEST AU REDÉPLOIEMENT : récap IA immédiat avec messages Discord réels
-    print("🤖 [STARTUP] Test récap IA au redéploiement...")
-    await post_ai_recap(actus_channel)
-    print("✅ [STARTUP] Test récap IA terminé")
-
     while True:
         paris_now = datetime.now(timezone(timedelta(hours=2)))
 
@@ -696,11 +535,13 @@ async def poll_telegram():
                     footer = f"\n\n🔗 [Voir la source]({post_link})"
                     content = f"{header}{text}{footer}"
 
+                    # Ignore si trop long
                     if len(content) > 2000:
                         print(f"⚠️ Message {channel_username} trop long, ignoré")
                         new_last_id = max(new_last_id, message.id)
                         continue
 
+                    # Vérifie les doublons
                     if is_duplicate(text):
                         print(f"⚠️ Doublon détecté {channel_username}, ignoré")
                         new_last_id = max(new_last_id, message.id)
@@ -710,8 +551,6 @@ async def poll_telegram():
 
                     if text and len(text) > 10:
                         daily_news.append(f"[{label.replace('*', '').replace('_', '').strip()}] {text[:200]}")
-                        if len(daily_news) > 50:
-                            daily_news.pop(0)
 
                     try:
                         if message.photo:
