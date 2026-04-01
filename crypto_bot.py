@@ -26,7 +26,11 @@ TELEGRAM_CHANNELS = {
     "@cryptoast_fr": ("🇫🇷 **CryptoAst**", False, True),
     "@journalducoin_fr": ("🇫🇷 **Journal du Coin**", False, False),
 }
+api_key = os.getenv("GEMINI_API_KEY")
 
+if not api_key:
+    print("Erreur : La variable d'environnement GEMINI_API_KEY est vide !")
+    
 intents = discord.Intents.default()
 discord_client = discord.Client(intents=intents)
 telegram_client = TelegramClient(
