@@ -195,10 +195,16 @@ def get_weekly_calendar():
 def get_ai_summary(news_list):
     try:
         if not news_list:
+            print("⚠️ Liste d'actus vide")
             return None
+
+        # Limite aux 50 dernières actus
+        news_list = news_list[-50:]
+        print(f"📋 Envoi de {len(news_list)} actus à Claude...")
 
         news_text = "\n".join([f"- {n}" for n in news_list])
 
+        print(f"📡 Appel API Claude...")
         response = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -216,12 +222,29 @@ def get_ai_summary(news_list):
 Actualités :
 {news_text}"""
                 }]
-            }
+            },
+            timeout=30
         )
+
+        print(f"📡 Status HTTP: {response.status_code}")
         data = response.json()
+        print(f"📡 Réponse complète: {data}")
+
+        if "error" in data:
+            print(f"❌ Erreur API Claude: {data['error']}")
+            return None
+
+        if "content" not in data:
+            print(f"❌ Pas de 'content' dans la réponse: {data}")
+            return None
+
         return data["content"][0]["text"]
+
+    except requests.exceptions.Timeout:
+        print("❌ Timeout API Claude (30s dépassé)")
+        return None
     except Exception as e:
-        print(f"❌ Erreur IA: {e}")
+        print(f"❌ Erreur IA inattendue: {type(e).__name__}: {e}")
         return None
 
 def make_channel_name(symbol, price, change):
@@ -338,14 +361,16 @@ async def post_weekly_calendar(actus_channel):
 async def post_ai_recap(actus_channel):
     global daily_news
     try:
+        print(f"🤖 Démarrage récap IA avec {len(daily_news)} actus...")
+
         if not daily_news:
             print("⚠️ Pas d'actus aujourd'hui pour le récap IA")
             return
 
-        print(f"🤖 Génération récap IA avec {len(daily_news)} actus...")
         summary = get_ai_summary(daily_news)
 
         if not summary:
+            print("❌ Récap IA échoué — pas de résumé généré")
             return
 
         paris_time = datetime.now(timezone(timedelta(hours=2)))
@@ -358,7 +383,7 @@ async def post_ai_recap(actus_channel):
         daily_news = []
 
     except Exception as e:
-        print(f"❌ Erreur récap IA: {e}")
+        print(f"❌ Erreur récap IA: {type(e).__name__}: {e}")
 
 async def update_channels():
     await discord_client.wait_until_ready()
@@ -455,6 +480,24 @@ async def daily_summary():
 
     await post_weekly_calendar(actus_channel)
 
+    # Test récap IA au démarrage
+    print("🤖 Test récap IA au démarrage...")
+    test_news = [
+        "[Walter Bloomberg] Bitcoin hits new high as institutional demand surges",
+        "[Watcher Guru] Fed signals potential rate cuts amid cooling inflation",
+        "[CoinTelegraph] Ethereum ETF sees record inflows this week",
+        "[CryptoAst] La SEC approuve de nouveaux produits crypto",
+        "[Journal du Coin] Le marché crypto rebondit après la correction"
+    ]
+    summary = get_ai_summary(test_news)
+    if summary:
+        paris_time = datetime.now(timezone(timedelta(hours=2)))
+        date_str = paris_time.strftime("%d %B %Y")
+        await actus_channel.send(f"🤖 **Récap IA test démarrage — {date_str}**\n\n{summary}")
+        print("✅ Test récap IA réussi !")
+    else:
+        print("❌ Test récap IA échoué")
+
     while True:
         paris_now = datetime.now(timezone(timedelta(hours=2)))
 
@@ -535,13 +578,11 @@ async def poll_telegram():
                     footer = f"\n\n🔗 [Voir la source]({post_link})"
                     content = f"{header}{text}{footer}"
 
-                    # Ignore si trop long
                     if len(content) > 2000:
                         print(f"⚠️ Message {channel_username} trop long, ignoré")
                         new_last_id = max(new_last_id, message.id)
                         continue
 
-                    # Vérifie les doublons
                     if is_duplicate(text):
                         print(f"⚠️ Doublon détecté {channel_username}, ignoré")
                         new_last_id = max(new_last_id, message.id)
@@ -551,6 +592,8 @@ async def poll_telegram():
 
                     if text and len(text) > 10:
                         daily_news.append(f"[{label.replace('*', '').replace('_', '').strip()}] {text[:200]}")
+                        if len(daily_news) > 50:
+                            daily_news.pop(0)
 
                     try:
                         if message.photo:
