@@ -197,20 +197,19 @@ def get_weekly_calendar():
 # entre hier 20h01 et aujourd'hui 20h00 (heure de Paris)
 # ============================================================
 async def fetch_actus_messages(actus_channel):
-    """
-    Lit l'historique du canal #actus sur Discord et retourne
-    tous les messages postés dans la fenêtre J 20h01 → J+1 20h00.
-    """
     paris_tz = timezone(timedelta(hours=2))
     now_paris = datetime.now(paris_tz)
 
-    # Fenêtre : hier 20h01 → aujourd'hui 20h00
     end_time   = now_paris.replace(hour=20, minute=0, second=0, microsecond=0)
     start_time = end_time - timedelta(hours=23, minutes=59)
 
     print(f"📅 Fenêtre de lecture : {start_time.strftime('%d/%m %H:%M')} → {end_time.strftime('%d/%m %H:%M')} (Paris)")
+    print(f"📅 Canal ciblé : #{actus_channel.name} (id={actus_channel.id})")
 
     collected = []
+    total_seen = 0
+    skipped_empty = 0
+
     try:
         async for msg in actus_channel.history(
             limit=500,
@@ -218,16 +217,28 @@ async def fetch_actus_messages(actus_channel):
             before=end_time.astimezone(timezone.utc),
             oldest_first=True
         ):
-            # On ignore les messages du bot lui-même et les messages vides
-            if msg.author.bot:
-                continue
+            total_seen += 1
+
+            # ❌ ANCIEN CODE : on ignorait les bots → c'est faux car le bot poste lui-même les actus
+            # On garde uniquement le filtre sur les messages vides
             if not msg.content or len(msg.content.strip()) < 10:
+                skipped_empty += 1
                 continue
+
             collected.append(msg.content.strip())
 
-        print(f"📨 {len(collected)} messages récupérés dans #actus")
+        print(f"📨 Messages vus au total : {total_seen}")
+        print(f"📨 Messages ignorés (vides) : {skipped_empty}")
+        print(f"📨 Messages retenus : {len(collected)}")
+
+        # Aperçu des 3 premiers pour vérif dans les logs
+        for i, m in enumerate(collected[:3]):
+            print(f"   [{i+1}] {m[:80]}...")
+
+    except discord.errors.Forbidden:
+        print(f"❌ PERMISSION REFUSÉE sur #{actus_channel.name} — ajoute 'Read Message History' au bot !")
     except Exception as e:
-        print(f"❌ Erreur lecture historique #actus : {e}")
+        print(f"❌ Erreur lecture historique #actus : {type(e).__name__}: {e}")
 
     return collected
 
