@@ -12,7 +12,7 @@ CMC_API_KEY = os.environ.get("CMC_API_KEY")
 TELEGRAM_API_ID = int(os.environ.get("TELEGRAM_API_ID"))
 TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH")
 TELEGRAM_SESSION = os.environ.get("TELEGRAM_SESSION")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 GUILD_NAME = "The Crypto Bro"
 DISCORD_ACTUS_CHANNEL = "actus"
@@ -227,54 +227,59 @@ async def get_actus_last_24h(actus_channel):
         print(f"❌ Erreur lecture #actus: {e}")
         return []
 
-def get_anthropic_summary(news_list):
+def get_groq_summary(news_list):
     try:
         if not news_list:
+            print("⚠️ Pas d'actus à résumer")
             return None
 
+        print(f"📡 Appel API Groq avec {len(news_list)} actus...")
         news_text = "\n".join([f"- {n}" for n in news_list])
-        print(f"📡 Appel API Anthropic avec {len(news_list)} actus...")
 
         response = requests.post(
-            "https://api.anthropic.com/v1/messages",
+            "https://api.groq.com/openai/v1/chat/completions",
             headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
             },
             json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 500,
-                "messages": [{
-                    "role": "user",
-                    "content": f"""Voici les actualités crypto du jour. Fais un résumé en français en exactement 5 points clés, chacun sur une ligne commençant par un emoji pertinent. Sois concis et informatif. Ne mets pas de titre, juste les 5 points.
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Tu es un expert en crypto et finance. Tu résumes les actualités en français de façon concise et pertinente."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""Voici les actualités crypto et macro des dernières 24h. Fais un résumé en français en exactement 5 points clés, chacun sur une ligne commençant par un emoji pertinent. Sois concis et informatif. Ne mets pas de titre, juste les 5 points.
 
 Actualités :
 {news_text}"""
-                }]
+                    }
+                ],
+                "max_tokens": 500,
+                "temperature": 0.3
             },
             timeout=30
         )
 
-        print(f"📡 Status HTTP Anthropic: {response.status_code}")
+        print(f"📡 Status HTTP Groq: {response.status_code}")
         data = response.json()
-        print(f"📡 Réponse Anthropic: {data}")
+        print(f"📡 Réponse Groq: {data}")
 
         if "error" in data:
-            print(f"❌ Erreur Anthropic: {data['error']}")
+            print(f"❌ Erreur Groq: {data['error']}")
             return None
 
-        if "content" not in data:
-            print(f"❌ Pas de content dans la réponse: {data}")
-            return None
-
-        return data["content"][0]["text"].strip()
+        text = data["choices"][0]["message"]["content"]
+        print("✅ Résumé Groq généré !")
+        return text.strip()
 
     except requests.exceptions.Timeout:
-        print("❌ Timeout Anthropic (30s dépassé)")
+        print("❌ Timeout Groq (30s dépassé)")
         return None
     except Exception as e:
-        print(f"❌ Erreur Anthropic: {type(e).__name__}: {e}")
+        print(f"❌ Erreur Groq inattendue: {type(e).__name__}: {e}")
         return None
 
 def make_channel_name(symbol, price, change):
@@ -390,7 +395,7 @@ async def post_weekly_calendar(actus_channel):
 
 async def post_ai_recap(actus_channel):
     try:
-        print("🤖 Démarrage récap IA...")
+        print("🤖 Démarrage récap IA Groq...")
 
         news_list = await get_actus_last_24h(actus_channel)
 
@@ -398,29 +403,26 @@ async def post_ai_recap(actus_channel):
             print("⚠️ Aucune actu trouvée dans #actus pour le récap")
             return
 
-        # Limite aux 30 dernières actus
-        news_list = news_list[-30:]
-        print(f"📋 {len(news_list)} actus sélectionnées")
+        print(f"📋 {len(news_list)} actus des dernières 24h envoyées à Groq")
 
-        # Crée le fichier texte et le poste dans Discord
+        # Sauvegarde le fichier texte et le poste dans Discord
         news_text = "\n".join([f"- {n}" for n in news_list])
         fichier_path = "/tmp/actus_du_jour.txt"
         with open(fichier_path, "w", encoding="utf-8") as f:
             f.write(news_text)
-        print(f"📄 Fichier texte créé : {len(news_text)} caractères")
 
         paris_time = datetime.now(timezone(timedelta(hours=2)))
         date_str = paris_time.strftime("%d %B %Y")
 
         with open(fichier_path, "rb") as f:
             await actus_channel.send(
-                content=f"📄 **Actus du jour — {date_str}** _(fichier brut envoyé à l'IA)_",
+                content=f"📄 **Actus du jour — {date_str}** _(fichier brut envoyé à Groq)_",
                 file=discord.File(f, filename=f"actus_{date_str}.txt")
             )
         print("✅ Fichier actus posté dans #actus")
 
-        # Résumé via Anthropic
-        summary = get_anthropic_summary(news_list)
+        # Résumé via Groq
+        summary = get_groq_summary(news_list)
 
         if not summary:
             print("❌ Récap IA échoué")
@@ -428,7 +430,7 @@ async def post_ai_recap(actus_channel):
 
         message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
         await actus_channel.send(message)
-        print("✅ Récap IA posté !")
+        print("✅ Récap IA Groq posté !")
 
         if os.path.exists(fichier_path):
             os.remove(fichier_path)
@@ -530,7 +532,7 @@ async def daily_summary():
         return
 
     # Test récap IA au démarrage
-    print("🤖 Test récap IA au démarrage...")
+    print("🤖 Test récap IA Groq au démarrage...")
     await post_ai_recap(actus_channel)
 
     while True:
