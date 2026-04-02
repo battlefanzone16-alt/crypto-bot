@@ -193,29 +193,23 @@ def get_weekly_calendar():
         return []
 
 async def get_actus_last_24h(actus_channel):
-    """Lit les messages du canal #actus des dernières 24h et les compile"""
     try:
         print("📖 Lecture des messages #actus des dernières 24h...")
         since = datetime.now(timezone.utc) - timedelta(hours=24)
         messages = []
 
         async for message in actus_channel.history(limit=500, after=since):
-            # Ignore les messages du bot qui ne sont pas des actus
-            # (résumés, alertes, calendrier, etc.)
             if message.author.bot and message.content:
                 content = message.content
-                # Ignore les messages système du bot
                 skip_keywords = [
                     "Résumé des marchés", "Résumé matinal", "Résumé de démarrage",
                     "Récap IA", "Calendrier éco", "ALERTE BTC", "test démarrage"
                 ]
                 if any(kw in content for kw in skip_keywords):
                     continue
-                # Garde uniquement les actus (messages avec sources Telegram)
                 if "Voir la source" in content or any(
                     src in content for src in ["Walter Bloomberg", "Watcher Guru", "CoinTelegraph", "CryptoAst", "Journal du Coin"]
                 ):
-                    # Nettoie le message pour garder juste le texte de l'actu
                     lines = content.split("\n")
                     actu_lines = []
                     for line in lines:
@@ -233,17 +227,19 @@ async def get_actus_last_24h(actus_channel):
         return []
 
 def get_gemini_summary(news_list):
-    """Envoie les actus à Gemini Flash et récupère un résumé"""
     try:
         if not news_list:
             print("⚠️ Pas d'actus à résumer")
             return None
 
-        print(f"🤖 Envoi de {len(news_list)} actus à Gemini...")
+        # Limite aux 30 dernières actus
+        news_list = news_list[-30:]
+        print(f"📋 Envoi de {len(news_list)} actus à Gemini Flash Lite...")
+
         news_text = "\n".join([f"- {n}" for n in news_list])
 
-       
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
+
         payload = {
             "contents": [{
                 "parts": [{
@@ -259,7 +255,7 @@ Actualités :
             }
         }
 
-        print("📡 Appel API Gemini...")
+        print("📡 Appel API Gemini Flash Lite...")
         response = requests.post(url, json=payload, timeout=30)
         print(f"📡 Status HTTP Gemini: {response.status_code}")
 
@@ -321,7 +317,8 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
     gold_line = f"🥇 Gold : ${gold:,.2f}" if gold else "⚠️ Gold indisponible"
     brent_line = f"🛢️ Brent : ${brent:,.2f}" if brent else "⚠️ Brent indisponible"
 
-    low_24h, high_24h, low_7d, high_7d = get_btc_levels()
+    low_24h, high_24h, low_reflections_7d, high_7d = get_btc_levels()
+    low_7d = low_reflections_7d
     if low_24h:
         levels_section = f"""
 
@@ -393,18 +390,19 @@ async def post_weekly_calendar(actus_channel):
         print(f"❌ Erreur calendrier: {e}")
 
 async def post_ai_recap(actus_channel):
-    """Lit #actus, envoie à Gemini, poste le résumé"""
     try:
         print("🤖 Démarrage récap IA Gemini...")
 
-        # Lit les actus des dernières 24h depuis Discord
         news_list = await get_actus_last_24h(actus_channel)
 
         if not news_list:
             print("⚠️ Aucune actu trouvée dans #actus pour le récap")
             return
 
-        # Envoie à Gemini
+        # Limite aux 30 dernières actus
+        news_list = news_list[-30:]
+        print(f"📋 Limité à {len(news_list)} actus pour Gemini")
+
         summary = get_gemini_summary(news_list)
 
         if not summary:
@@ -514,9 +512,7 @@ async def daily_summary():
         print("❌ Channel 'actus' introuvable")
         return
 
-    await post_weekly_calendar(actus_channel)
-
-    # Test récap IA au démarrage
+    # Test récap IA au démarrage uniquement
     print("🤖 Test récap IA Gemini au démarrage...")
     await post_ai_recap(actus_channel)
 
