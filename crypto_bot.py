@@ -12,7 +12,7 @@ CMC_API_KEY = os.environ.get("CMC_API_KEY")
 TELEGRAM_API_ID = int(os.environ.get("TELEGRAM_API_ID"))
 TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH")
 TELEGRAM_SESSION = os.environ.get("TELEGRAM_SESSION")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 GUILD_NAME = "The Crypto Bro"
 DISCORD_ACTUS_CHANNEL = "actus"
@@ -203,7 +203,8 @@ async def get_actus_last_24h(actus_channel):
                 content = message.content
                 skip_keywords = [
                     "Résumé des marchés", "Résumé matinal", "Résumé de démarrage",
-                    "Récap IA", "Calendrier éco", "ALERTE BTC", "test démarrage"
+                    "Récap IA", "Calendrier éco", "ALERTE BTC", "test démarrage",
+                    "Actus du jour"
                 ]
                 if any(kw in content for kw in skip_keywords):
                     continue
@@ -226,55 +227,54 @@ async def get_actus_last_24h(actus_channel):
         print(f"❌ Erreur lecture #actus: {e}")
         return []
 
-def get_gemini_summary(news_list):
+def get_anthropic_summary(news_list):
     try:
         if not news_list:
-            print("⚠️ Pas d'actus à résumer")
             return None
 
-        # Limite aux 30 dernières actus
-        news_list = news_list[-30:]
-        print(f"📋 Envoi de {len(news_list)} actus à Gemini Flash Lite...")
-
         news_text = "\n".join([f"- {n}" for n in news_list])
+        print(f"📡 Appel API Anthropic avec {len(news_list)} actus...")
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
-
-        payload = {
-            "contents": [{
-                "parts": [{
-                    "text": f"""Voici les actualités crypto postées aujourd'hui. Fais un résumé en français en exactement 5 points clés, chacun sur une ligne commençant par un emoji pertinent. Sois concis et informatif. Ne mets pas de titre, juste les 5 points.
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 500,
+                "messages": [{
+                    "role": "user",
+                    "content": f"""Voici les actualités crypto du jour. Fais un résumé en français en exactement 5 points clés, chacun sur une ligne commençant par un emoji pertinent. Sois concis et informatif. Ne mets pas de titre, juste les 5 points.
 
 Actualités :
 {news_text}"""
                 }]
-            }],
-            "generationConfig": {
-                "maxOutputTokens": 500,
-                "temperature": 0.3
-            }
-        }
+            },
+            timeout=30
+        )
 
-        print("📡 Appel API Gemini Flash Lite...")
-        response = requests.post(url, json=payload, timeout=30)
-        print(f"📡 Status HTTP Gemini: {response.status_code}")
-
+        print(f"📡 Status HTTP Anthropic: {response.status_code}")
         data = response.json()
-        print(f"📡 Réponse Gemini: {data}")
+        print(f"📡 Réponse Anthropic: {data}")
 
         if "error" in data:
-            print(f"❌ Erreur Gemini: {data['error']}")
+            print(f"❌ Erreur Anthropic: {data['error']}")
             return None
 
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
-        print(f"✅ Résumé Gemini généré !")
-        return text.strip()
+        if "content" not in data:
+            print(f"❌ Pas de content dans la réponse: {data}")
+            return None
+
+        return data["content"][0]["text"].strip()
 
     except requests.exceptions.Timeout:
-        print("❌ Timeout Gemini (30s dépassé)")
+        print("❌ Timeout Anthropic (30s dépassé)")
         return None
     except Exception as e:
-        print(f"❌ Erreur Gemini inattendue: {type(e).__name__}: {e}")
+        print(f"❌ Erreur Anthropic: {type(e).__name__}: {e}")
         return None
 
 def make_channel_name(symbol, price, change):
@@ -317,8 +317,7 @@ def build_summary(btc, eth, btc_change, eth_change, dom, fg, fg_class, funding, 
     gold_line = f"🥇 Gold : ${gold:,.2f}" if gold else "⚠️ Gold indisponible"
     brent_line = f"🛢️ Brent : ${brent:,.2f}" if brent else "⚠️ Brent indisponible"
 
-    low_24h, high_24h, low_reflections_7d, high_7d = get_btc_levels()
-    low_7d = low_reflections_7d
+    low_24h, high_24h, low_7d, high_7d = get_btc_levels()
     if low_24h:
         levels_section = f"""
 
@@ -391,7 +390,7 @@ async def post_weekly_calendar(actus_channel):
 
 async def post_ai_recap(actus_channel):
     try:
-        print("🤖 Démarrage récap IA Gemini...")
+        print("🤖 Démarrage récap IA...")
 
         news_list = await get_actus_last_24h(actus_channel)
 
@@ -401,20 +400,38 @@ async def post_ai_recap(actus_channel):
 
         # Limite aux 30 dernières actus
         news_list = news_list[-30:]
-        print(f"📋 Limité à {len(news_list)} actus pour Gemini")
+        print(f"📋 {len(news_list)} actus sélectionnées")
 
-        summary = get_gemini_summary(news_list)
+        # Crée le fichier texte et le poste dans Discord
+        news_text = "\n".join([f"- {n}" for n in news_list])
+        fichier_path = "/tmp/actus_du_jour.txt"
+        with open(fichier_path, "w", encoding="utf-8") as f:
+            f.write(news_text)
+        print(f"📄 Fichier texte créé : {len(news_text)} caractères")
+
+        paris_time = datetime.now(timezone(timedelta(hours=2)))
+        date_str = paris_time.strftime("%d %B %Y")
+
+        with open(fichier_path, "rb") as f:
+            await actus_channel.send(
+                content=f"📄 **Actus du jour — {date_str}** _(fichier brut envoyé à l'IA)_",
+                file=discord.File(f, filename=f"actus_{date_str}.txt")
+            )
+        print("✅ Fichier actus posté dans #actus")
+
+        # Résumé via Anthropic
+        summary = get_anthropic_summary(news_list)
 
         if not summary:
             print("❌ Récap IA échoué")
             return
 
-        paris_time = datetime.now(timezone(timedelta(hours=2)))
-        date_str = paris_time.strftime("%d %B %Y")
-
         message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
         await actus_channel.send(message)
-        print("✅ Récap IA Gemini posté !")
+        print("✅ Récap IA posté !")
+
+        if os.path.exists(fichier_path):
+            os.remove(fichier_path)
 
     except Exception as e:
         print(f"❌ Erreur récap IA: {type(e).__name__}: {e}")
@@ -512,8 +529,8 @@ async def daily_summary():
         print("❌ Channel 'actus' introuvable")
         return
 
-    # Test récap IA au démarrage uniquement
-    print("🤖 Test récap IA Gemini au démarrage...")
+    # Test récap IA au démarrage
+    print("🤖 Test récap IA au démarrage...")
     await post_ai_recap(actus_channel)
 
     while True:
