@@ -251,13 +251,13 @@ def get_groq_summary(news_list):
                     },
                     {
                         "role": "user",
-                        "content": f"""Voici les actualités crypto et macro des dernières 24h. Fais un résumé complet en français de ce que tu trouves important, chacun paragraphe commençant par un emoji pertinent, concentre toi sur ce qui pourrait avoir un impact sur le monde de la crypto et aussi d'un point de vue macro économique notamment si il y a des chiffres du jours qui sont important du genre NFP, Taux de chomage , inflation , FED etc
+                        "content": f"""Voici les actualités crypto et macro des dernières 24h. Fais un résumé complet en français en 1950 caractère maximum de ce que tu trouves important, chaque paragraphe commençant par un emoji pertinent, concentre toi sur ce qui pourrait avoir un impact sur le monde de la crypto et aussi d'un point de vue macro économique notamment si il y a des chiffres du jours qui sont important du genre NFP, Taux de chomage , inflation , FED etc
 
 Actualités :
 {news_text}"""
                     }
                 ],
-                "max_tokens": 2500,
+                "max_tokens": 400,
                 "temperature": 0.3
             },
             timeout=30
