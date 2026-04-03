@@ -433,8 +433,13 @@ async def post_ai_recap(actus_channel):
         news_list = await get_actus_last_24h(actus_channel)
 
         if not news_list:
-            print("⚠️ Aucune actu trouvée")
+            print("⚠️ Aucune actu trouvée dans #actus")
             return
+
+        # 🔹 Limite pour éviter les pavés IA
+        news_list = news_list[:20]
+
+        print(f"📋 {len(news_list)} actus envoyées à Groq")
 
         summary = get_groq_summary(news_list)
 
@@ -447,28 +452,33 @@ async def post_ai_recap(actus_channel):
 
         message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
 
-        # ✅ UNPIN ancien
-        pins = await actus_channel.pins()
-        for pin in pins:
-            if "Récap IA du jour" in pin.content:
-                try:
-                    await pin.unpin()
-                except:
-                    pass
-
-        # ✅ SPLIT message
+        # 🔹 Fonction split (anti limite Discord)
         def split_message(message, max_length=2000):
             return [message[i:i+max_length] for i in range(0, len(message), max_length)]
 
         chunks = split_message(message)
 
+        # 🔹 Gestion des pins (garder 7 max)
+        pins = await actus_channel.pins()
+
+        recap_pins = [pin for pin in pins if "Récap IA du jour" in pin.content]
+        recap_pins.sort(key=lambda m: m.created_at)
+
+        while len(recap_pins) >= 7:
+            try:
+                await recap_pins[0].unpin()
+                recap_pins.pop(0)
+            except:
+                break
+
+        # 🔹 Envoi + pin du premier message
         for i, chunk in enumerate(chunks):
             sent_message = await actus_channel.send(chunk)
 
             if i == 0:
                 await sent_message.pin()
 
-        print("✅ Récap IA posté + épinglé")
+        print("✅ Récap IA posté + pins gérés")
 
     except Exception as e:
         print(f"❌ Erreur récap IA: {type(e).__name__}: {e}")
