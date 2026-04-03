@@ -218,7 +218,7 @@ async def get_actus_last_24h(actus_channel):
                             actu_lines.append(line.strip())
                     clean_text = " ".join(actu_lines)
                     if clean_text and len(clean_text) > 20:
-                        messages.append(clean_text[:300])
+                        messages.append(clean_text[:1900])
 
         print(f"📖 {len(messages)} actus trouvées dans #actus")
         return messages
@@ -251,13 +251,13 @@ def get_groq_summary(news_list):
                     },
                     {
                         "role": "user",
-                        "content": f"""Voici les actualités crypto et macro des dernières 24h. Fais un résumé en français en exactement 5 points clés, chacun sur une ligne commençant par un emoji pertinent. Sois concis et informatif. Ne mets pas de titre, juste les 5 points.
+                        "content": f"""Voici les actualités crypto et macro des dernières 24h. Fais un résumé complet en français de ce que tu trouves important, chacun paragraphe commençant par un emoji pertinent, concentre toi sur ce qui pourrait avoir un impact sur le monde de la crypto et aussi d'un point de vue macro économique notamment si il y a des chiffres du jours qui sont important du genre NFP, Taux de chomage , inflation , FED etc
 
 Actualités :
 {news_text}"""
                     }
                 ],
-                "max_tokens": 500,
+                "max_tokens": 2500,
                 "temperature": 0.3
             },
             timeout=30
