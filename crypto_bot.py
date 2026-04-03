@@ -413,13 +413,13 @@ async def post_ai_recap(actus_channel):
 
         paris_time = datetime.now(timezone(timedelta(hours=2)))
         date_str = paris_time.strftime("%d %B %Y")
-
-        with open(fichier_path, "rb") as f:
-            await actus_channel.send(
-                content=f"📄 **Actus du jour — {date_str}** _(fichier brut envoyé à Groq)_",
-                file=discord.File(f, filename=f"actus_{date_str}.txt")
-            )
-        print("✅ Fichier actus posté dans #actus")
+        # Poste le fichier actu créer dans le canal discord actu :
+       # with open(fichier_path, "rb") as f:
+        #    await actus_channel.send(
+       #         content=f"📄 **Actus du jour — {date_str}** _(fichier brut envoyé à Groq)_",
+        #        file=discord.File(f, filename=f"actus_{date_str}.txt")
+        #    )
+       # print("✅ Fichier actus posté dans #actus")
 
         # Résumé via Groq
         summary = get_groq_summary(news_list)
