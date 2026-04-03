@@ -400,63 +400,42 @@ async def post_ai_recap(actus_channel):
         news_list = await get_actus_last_24h(actus_channel)
 
         if not news_list:
-            print("⚠️ Aucune actu trouvée dans #actus pour le récap")
+            print("⚠️ Aucune actu trouvée")
             return
 
-        print(f"📋 {len(news_list)} actus des dernières 24h envoyées à Groq")
-
-        # Sauvegarde le fichier texte et le poste dans Discord
-        news_text = "\n".join([f"- {n}" for n in news_list])
-        fichier_path = "/tmp/actus_du_jour.txt"
-        with open(fichier_path, "w", encoding="utf-8") as f:
-            f.write(news_text)
-
-        paris_time = datetime.now(timezone(timedelta(hours=2)))
-        date_str = paris_time.strftime("%d %B %Y")
-        # Poste le fichier actu créer dans le canal discord actu :
-       # with open(fichier_path, "rb") as f:
-        #    await actus_channel.send(
-       #         content=f"📄 **Actus du jour — {date_str}** _(fichier brut envoyé à Groq)_",
-        #        file=discord.File(f, filename=f"actus_{date_str}.txt")
-        #    )
-       # print("✅ Fichier actus posté dans #actus")
-
-        # Résumé via Groq
         summary = get_groq_summary(news_list)
 
         if not summary:
             print("❌ Récap IA échoué")
             return
-# Supprimer ancien récap épinglé
-pins = await actus_channel.pins()
-for pin in pins:
-    if "Récap IA du jour" in pin.content:
-        try:
-            await pin.unpin()
-        except:
-            pass
-        
 
-     # MULTI MESSAGE SI +2000
-     message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
+        paris_time = datetime.now(timezone(timedelta(hours=2)))
+        date_str = paris_time.strftime("%d %B %Y")
 
-def split_message(message, max_length=2000):
-    return [message[i:i+max_length] for i in range(0, len(message), max_length)]
+        message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
 
-chunks = split_message(message)
+        # ✅ UNPIN ancien
+        pins = await actus_channel.pins()
+        for pin in pins:
+            if "Récap IA du jour" in pin.content:
+                try:
+                    await pin.unpin()
+                except:
+                    pass
 
-for i, chunk in enumerate(chunks):
-    sent_message = await actus_channel.send(chunk)
-    
-    # On pin uniquement le premier message
-    if i == 0:
-        await sent_message.pin()
+        # ✅ SPLIT message
+        def split_message(message, max_length=2000):
+            return [message[i:i+max_length] for i in range(0, len(message), max_length)]
 
+        chunks = split_message(message)
 
+        for i, chunk in enumerate(chunks):
+            sent_message = await actus_channel.send(chunk)
 
-        
-        if os.path.exists(fichier_path):
-            os.remove(fichier_path)
+            if i == 0:
+                await sent_message.pin()
+
+        print("✅ Récap IA posté + épinglé")
 
     except Exception as e:
         print(f"❌ Erreur récap IA: {type(e).__name__}: {e}")
