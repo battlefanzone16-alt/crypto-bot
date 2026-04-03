@@ -576,8 +576,8 @@ async def daily_summary():
         return
 
     # Test récap IA au démarrage
-    print("🤖 Test récap IA Groq au démarrage...")
-    await post_ai_recap(actus_channel)
+    #print("🤖 Test récap IA Groq au démarrage...")
+    #await post_ai_recap(actus_channel)
 
     while True:
         paris_now = datetime.now(timezone(timedelta(hours=2)))
