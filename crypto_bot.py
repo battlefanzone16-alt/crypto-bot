@@ -459,8 +459,8 @@ async def post_ai_recap(actus_channel):
         chunks = split_message(message)
 
         # 🔹 Gestion des pins (garder 7 max)
-        pins = await actus_channel.pins()
-
+        #pins = await actus_channel.pins()
+pins = [msg async for msg in actus_channel.pins()]
         recap_pins = [pin for pin in pins if "Récap IA du jour" in pin.content]
         recap_pins.sort(key=lambda m: m.created_at)
 
