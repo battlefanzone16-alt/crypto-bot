@@ -259,10 +259,10 @@ def get_groq_summary(news_list):
 "content": f"""Voici les actualités crypto et macro des dernières 24h.
 
 ⚠️ IMPORTANT :
-- Maximum 1500 caractères
-- Format ULTRA lisible (PAS de gros paragraphes)
+- Maximum 1750 caractères
+- Format ULTRA lisible (PAS de trop gros paragraphes)
 - Utilise des bullet points
-- Va à l’essentiel (infos importantes uniquement)
+- Va à l’essentiel (infos que tu juges important pour le monde de la crypto (FED , chiffre macro , actu blockchain , Guerre , etc...)
 
 📊 Structure OBLIGATOIRE :
 
@@ -278,8 +278,6 @@ def get_groq_summary(news_list):
 ⚠️ RISQUES
 - ...
 
-🧠 CONCLUSION
-- 1 phrase max sur le sentiment global (bullish / bearish / neutre)
 
 Actualités :
 {news_text}"""
