@@ -427,11 +427,34 @@ async def post_ai_recap(actus_channel):
         if not summary:
             print("❌ Récap IA échoué")
             return
+# Supprimer ancien récap épinglé
+pins = await actus_channel.pins()
+for pin in pins:
+    if "Récap IA du jour" in pin.content:
+        try:
+            await pin.unpin()
+        except:
+            pass
+        
 
-        message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
-        await actus_channel.send(message)
-        print("✅ Récap IA Groq posté !")
+     # MULTI MESSAGE SI +2000
+     message = f"🤖 **Récap IA du jour — {date_str}**\n\n{summary}"
 
+def split_message(message, max_length=2000):
+    return [message[i:i+max_length] for i in range(0, len(message), max_length)]
+
+chunks = split_message(message)
+
+for i, chunk in enumerate(chunks):
+    sent_message = await actus_channel.send(chunk)
+    
+    # On pin uniquement le premier message
+    if i == 0:
+        await sent_message.pin()
+
+
+
+        
         if os.path.exists(fichier_path):
             os.remove(fichier_path)
 
